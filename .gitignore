@@ -1,0 +1,16 @@
+# BE
+be/target/
+be/data/
+be/.idea/
+be/*.iml
+
+# FE
+fe/node_modules/
+fe/dist/
+
+# Env / OS
+.env
+deploy/.env
+.DS_Store
+Thumbs.db
+*.log

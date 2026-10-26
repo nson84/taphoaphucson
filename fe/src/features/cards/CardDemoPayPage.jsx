@@ -57,7 +57,7 @@ export default function CardDemoPayPage() {
           </p>
           <p className="amount-preview">{formatMoney(order.amount)}</p>
           <div className="form-actions" style={{ border: 'none', marginTop: '1.25rem' }}>
-            <button type="button" className="ghost btn-lg" onClick={() => navigate('/cards')}>
+            <button type="button" className="btn-cancel btn-lg" onClick={() => navigate('/cards')}>
               Hủy
             </button>
             <button

@@ -9,6 +9,7 @@ export default function ConfirmDialog({
   requirePin = false,
   danger = false,
   busy = false,
+  elevated = false,
   onConfirm,
   onClose,
 }) {
@@ -38,7 +39,11 @@ export default function ConfirmDialog({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+    <div
+      className={`modal-backdrop${elevated ? ' modal-stack-top' : ''}`}
+      role="presentation"
+      onClick={onClose}
+    >
       <div
         className="modal-card"
         role="dialog"
@@ -66,7 +71,7 @@ export default function ConfirmDialog({
         )}
         {localError && <p className="error">{localError}</p>}
         <div className="actions">
-          <button type="button" className="ghost" onClick={onClose} disabled={busy}>
+          <button type="button" className="btn-cancel" onClick={onClose} disabled={busy}>
             {cancelLabel}
           </button>
           <button

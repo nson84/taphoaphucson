@@ -1,6 +1,7 @@
 package com.taphoa.debt.customer;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -12,6 +13,7 @@ import com.taphoa.debt.common.ApiException;
 import com.taphoa.debt.debt.DebtDto;
 import com.taphoa.debt.debt.DebtRepository;
 import com.taphoa.debt.debt.DebtService;
+import com.taphoa.debt.debt.DebtType;
 
 @Service
 public class CustomerService {
@@ -35,8 +37,53 @@ public class CustomerService {
 
     @Transactional(readOnly = true)
     public Page<CustomerDto> search(String q, int page, int size) {
-        return customerRepository.searchByName(normalize(q), PageRequest.of(page, size))
-                .map(this::toDto);
+        return search(q, page, size, com.taphoa.debt.debt.AmountSort.DESC);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<CustomerDto> search(String q, int page, int size, String sort) {
+        return search(q, page, size, sort, false);
+    }
+
+    /**
+     * @param nameOnly true = chỉ khớp tên khách/công ty (dùng gợi ý form ghi nợ).
+     *                 false = thêm khớp quan hệ/xưởng (Tổng hợp / danh sách).
+     */
+    @Transactional(readOnly = true)
+    public Page<CustomerDto> search(String q, int page, int size, String sort, boolean nameOnly) {
+        return search(q, page, size, sort, nameOnly, false, false);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<CustomerDto> search(
+            String q,
+            int page,
+            int size,
+            String sort,
+            boolean nameOnly,
+            boolean filterPersonal,
+            boolean filterCompany
+    ) {
+        String nq = normalize(q);
+        PageRequest pageable = PageRequest.of(page, size);
+        var pageResult = com.taphoa.debt.debt.AmountSort.isDescending(sort)
+                ? customerRepository.searchByNameOrderByBalanceDesc(
+                        nq, nameOnly, filterPersonal, filterCompany, pageable)
+                : customerRepository.searchByNameOrderByBalanceAsc(
+                        nq, nameOnly, filterPersonal, filterCompany, pageable);
+        return pageResult.map(this::toDto);
+    }
+
+    /** Khách hết nợ trong thùng rác (còn trong hạn retentionDays). */
+    @Transactional(readOnly = true)
+    public Page<CustomerDto> searchTrash(String q, int page, int size, String sort, int retentionDays) {
+        String nq = normalize(q);
+        PageRequest pageable = PageRequest.of(page, size);
+        LocalDateTime cutoff = LocalDateTime.now(DebtService.VN_ZONE).minusDays(retentionDays);
+        var pageResult = com.taphoa.debt.debt.AmountSort.isDescending(sort)
+                ? customerRepository.searchTrashOrderByPaidDesc(nq, cutoff, pageable)
+                : customerRepository.searchTrashOrderByPaidAsc(nq, cutoff, pageable);
+        return pageResult.map(this::toTrashDto);
     }
 
     @Transactional(readOnly = true)
@@ -46,7 +93,7 @@ public class CustomerService {
 
     @Transactional
     public CustomerDto create(CustomerRequest request) {
-        return toDto(customerMergeService.findOrCreate(request.name(), request.note()));
+        return toDto(customerMergeService.findOrCreate(request.name(), request.note(), request.parentName()));
     }
 
     @Transactional
@@ -55,6 +102,10 @@ public class CustomerService {
         String name = CustomerNameNormalizer.normalize(request.name());
         customer.setName(name);
         customer.setNote(request.note());
+        if (request.parentName() != null) {
+            String parent = request.parentName().trim();
+            customer.setParentName(parent.isEmpty() ? null : parent);
+        }
         customer = customerRepository.save(customer);
         customerMergeService.mergeDuplicates();
         return toDto(customerRepository.findById(customer.getId()).orElse(customer));
@@ -63,8 +114,7 @@ public class CustomerService {
     @Transactional
     public void delete(Long id) {
         Customer customer = find(id);
-        debtRepository.findByCustomerAndRange(id, null, null, PageRequest.of(0, Integer.MAX_VALUE))
-                .forEach(debtRepository::delete);
+        debtRepository.findAllByCustomerId(id).forEach(debtRepository::delete);
         customerRepository.delete(customer);
     }
 
@@ -75,9 +125,16 @@ public class CustomerService {
             Integer month,
             Integer day,
             int page,
-            int size
+            int size,
+            String sort
     ) {
-        return debtService.listByCustomer(customerId, year, month, day, page, size);
+        return debtService.listByCustomer(customerId, year, month, day, page, size, sort);
+    }
+
+    @Transactional
+    public void payAmount(Long customerId, BigDecimal amount) {
+        find(customerId);
+        debtService.payAmountForCustomer(customerId, amount);
     }
 
     private Customer find(Long id) {
@@ -86,14 +143,37 @@ public class CustomerService {
     }
 
     private CustomerDto toDto(Customer customer) {
-        BigDecimal balance = debtRepository.sumUnpaidByCustomer(customer.getId());
+        boolean trashed = customer.getTrashedAt() != null;
+        BigDecimal balance = trashed
+                ? debtRepository.sumPaidByCustomer(customer.getId())
+                : debtRepository.sumUnpaidByCustomer(customer.getId());
+        boolean company = debtRepository.existsByCustomerIdAndDebtType(customer.getId(), DebtType.COMPANY);
         return new CustomerDto(
                 customer.getId(),
                 customer.getName(),
+                customer.getParentName(),
+                company,
                 customer.getNote(),
                 balance,
                 customer.getCreatedAt(),
-                customer.getUpdatedAt()
+                customer.getUpdatedAt(),
+                trashed
+        );
+    }
+
+    /** Trong thùng rác: cột số tiền hiển thị tổng đã trả. */
+    private CustomerDto toTrashDto(Customer customer) {
+        boolean company = debtRepository.existsByCustomerIdAndDebtType(customer.getId(), DebtType.COMPANY);
+        return new CustomerDto(
+                customer.getId(),
+                customer.getName(),
+                customer.getParentName(),
+                company,
+                customer.getNote(),
+                debtRepository.sumPaidByCustomer(customer.getId()),
+                customer.getCreatedAt(),
+                customer.getUpdatedAt(),
+                true
         );
     }
 

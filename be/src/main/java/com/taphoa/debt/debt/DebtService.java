@@ -1,13 +1,17 @@
 package com.taphoa.debt.debt;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,34 +20,42 @@ import com.taphoa.debt.auth.PinService;
 import com.taphoa.debt.common.ApiException;
 import com.taphoa.debt.customer.Customer;
 import com.taphoa.debt.customer.CustomerMergeService;
+import com.taphoa.debt.customer.CustomerNameNormalizer;
 import com.taphoa.debt.customer.CustomerRepository;
+import com.taphoa.debt.qr.DebtQrService;
 
 @Service
 public class DebtService {
 
     public static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
+    private static final DateTimeFormatter PARTIAL_NOTE_TIME =
+            DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+
     private final DebtRepository debtRepository;
     private final CustomerRepository customerRepository;
     private final CustomerMergeService customerMergeService;
     private final PinService pinService;
+    private final DebtQrService debtQrService;
 
     public DebtService(
             DebtRepository debtRepository,
             CustomerRepository customerRepository,
             CustomerMergeService customerMergeService,
-            PinService pinService
+            PinService pinService,
+            DebtQrService debtQrService
     ) {
         this.debtRepository = debtRepository;
         this.customerRepository = customerRepository;
         this.customerMergeService = customerMergeService;
         this.pinService = pinService;
+        this.debtQrService = debtQrService;
     }
 
     @Transactional(readOnly = true)
-    public Page<DebtDto> search(String q, int page, int size) {
-        Pageable pageable = PageRequest.of(page, size);
-        return debtRepository.searchAll(normalize(q), pageable).map(DebtMapper::toDto);
+    public Page<DebtDto> search(String q, DebtType debtType, int page, int size, String sort) {
+        return debtRepository.searchAll(normalize(q), debtType, AmountSort.debtPageable(page, size, sort))
+                .map(DebtMapper::toDto);
     }
 
     @Transactional(readOnly = true)
@@ -53,7 +65,8 @@ public class DebtService {
             Integer month,
             Integer day,
             int page,
-            int size
+            int size,
+            String sort
     ) {
         if (!customerRepository.existsById(customerId)) {
             throw new ApiException("Không tìm thấy khách hàng", HttpStatus.NOT_FOUND);
@@ -75,8 +88,9 @@ public class DebtService {
                 to = LocalDate.of(year + 1, 1, 1).atStartOfDay();
             }
         }
-        Pageable pageable = PageRequest.of(page, size);
-        return debtRepository.findByCustomerAndRange(customerId, from, to, pageable).map(DebtMapper::toDto);
+        return debtRepository
+                .findByCustomerAndRange(customerId, from, to, AmountSort.debtPageable(page, size, sort))
+                .map(DebtMapper::toDto);
     }
 
     @Transactional(readOnly = true)
@@ -86,17 +100,21 @@ public class DebtService {
 
     @Transactional
     public DebtDto create(CreateDebtRequest request) {
-        // Ghi chú chỉ gắn vào lần nợ, không ghi đè ghi chú khách
-        Customer customer = customerMergeService.findOrCreate(request.customerName(), null);
+        DebtType type = request.debtType() != null ? request.debtType() : DebtType.PERSONAL;
+        Customer customer = resolveCustomer(type, request.customerName(), request.parentName(), null);
 
         Debt debt = new Debt();
         debt.setCustomer(customer);
+        debt.setDebtType(type);
         debt.setAmount(request.amount());
-        debt.setProductNote(request.productNote());
-        debt.setCustomerNote(request.customerNote());
+        debt.setProductNote(trimToNull(request.productNote()));
+        debt.setCustomerNote(null);
+        debt.setPickerName(trimToNull(request.pickerName()));
         debt.setOccurredAt(request.occurredAt() != null ? request.occurredAt() : LocalDateTime.now(VN_ZONE));
         debt.setPaid(false);
-        return DebtMapper.toDto(debtRepository.save(debt));
+        Debt saved = debtRepository.save(debt);
+        syncCustomerTrashState(customer.getId());
+        return DebtMapper.toDto(saved);
     }
 
     @Transactional
@@ -105,37 +123,185 @@ public class DebtService {
         if (debt.isPaid()) {
             throw new ApiException("Không thể sửa khoản nợ đã trả", HttpStatus.BAD_REQUEST);
         }
-        Customer customer = customerMergeService.findOrCreate(request.customerName(), null);
+        DebtType type = request.debtType() != null ? request.debtType() : DebtType.PERSONAL;
+        Customer customer = resolveCustomer(type, request.customerName(), request.parentName(), debt.getCustomer());
 
         debt.setCustomer(customer);
+        debt.setDebtType(type);
         debt.setAmount(request.amount());
-        debt.setProductNote(request.productNote());
-        debt.setCustomerNote(request.customerNote());
+        debt.setProductNote(trimToNull(request.productNote()));
+        debt.setCustomerNote(null);
+        debt.setPickerName(trimToNull(request.pickerName()));
         debt.setOccurredAt(request.occurredAt());
         return DebtMapper.toDto(debtRepository.save(debt));
+    }
+
+    /**
+     * Công ty: khi sửa giữ đúng khách đang gắn khoản nợ và cập nhật vai trò (chủ/NV)
+     * vào parentName — tránh tạo khách trùng và mất lựa chọn khi mở lại form.
+     */
+    private Customer resolveCustomer(
+            DebtType type, String customerName, String parentName, Customer currentCustomer
+    ) {
+        if (type == DebtType.COMPANY) {
+            String name = CustomerNameNormalizer.normalize(customerName);
+            if (currentCustomer != null
+                    && CustomerNameNormalizer.normalize(currentCustomer.getName()).equals(name)) {
+                return customerMergeService.applyCompanyRole(currentCustomer, parentName);
+            }
+            return customerMergeService.findOrCreateCompany(customerName, parentName);
+        }
+        return customerMergeService.findOrCreate(customerName, null, parentName);
     }
 
     @Transactional
     public void delete(Long id) {
         Debt debt = findDebt(id);
+        Long customerId = debt.getCustomer().getId();
         debtRepository.delete(debt);
+        syncCustomerTrashState(customerId);
     }
 
     @Transactional
     public DebtDto markPaid(Long id) {
+        return pay(id, null, false);
+    }
+
+    /**
+     * Trả hết khoản đang chọn (amount = null), hoặc trả theo số tiền.
+     * Nếu số tiền &gt; khoản hiện tại và cascadeRemainder = true: phần dư trừ tiếp các khoản còn nợ nhỏ nhất trước.
+     */
+    @Transactional
+    public DebtDto pay(Long id, BigDecimal amount, boolean cascadeRemainder) {
         Debt debt = findDebt(id);
         if (debt.isPaid()) {
             throw new ApiException("Khoản nợ đã được trả", HttpStatus.BAD_REQUEST);
         }
-        debt.setPaid(true);
-        debt.setPaidAt(LocalDateTime.now(VN_ZONE));
-        return DebtMapper.toDto(debtRepository.save(debt));
+        if (amount == null) {
+            debt.setPaid(true);
+            debt.setPaidAt(LocalDateTime.now(VN_ZONE));
+            Debt saved = debtRepository.save(debt);
+            afterCustomerBalanceChange(debt.getCustomer().getId());
+            return DebtMapper.toDto(saved);
+        }
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ApiException("Số tiền trả phải lớn hơn 0", HttpStatus.BAD_REQUEST);
+        }
+        if (amount.remainder(BigDecimal.valueOf(1000)).compareTo(BigDecimal.ZERO) != 0) {
+            throw new ApiException("Số tiền trả phải là bội số của 1.000 đ", HttpStatus.BAD_REQUEST);
+        }
+
+        Long customerId = debt.getCustomer().getId();
+        BigDecimal totalUnpaid = debtRepository.sumUnpaidByCustomer(customerId);
+        if (amount.compareTo(totalUnpaid) > 0) {
+            throw new ApiException(
+                    "Số tiền trả không được lớn hơn tổng còn nợ " + formatVnd(totalUnpaid),
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if (!cascadeRemainder && amount.compareTo(debt.getAmount()) > 0) {
+            throw new ApiException(
+                    "Số tiền lớn hơn khoản này. Hãy xác nhận tiếp tục trả phần dư vào khoản nhỏ nhất.",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+        BigDecimal remaining = amount;
+        remaining = applyPayment(debt, remaining);
+
+        if (cascadeRemainder && remaining.compareTo(BigDecimal.ZERO) > 0) {
+            var others = debtRepository.findByCustomerIdAndPaidFalseOrderByAmountAscIdAsc(customerId);
+            for (Debt other : others) {
+                if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
+                    break;
+                }
+                if (other.getId().equals(id) || other.isPaid()) {
+                    continue;
+                }
+                remaining = applyPayment(other, remaining);
+            }
+        }
+
+        afterCustomerBalanceChange(customerId);
+        return DebtMapper.toDto(findDebt(id));
+    }
+
+    /**
+     * Trả theo số tiền khách đưa: trừ lần lượt các khoản còn nợ nhỏ nhất trước.
+     * Khoản bị trừ dở được ghi chú số tiền và thời điểm.
+     */
+    @Transactional
+    public void payAmountForCustomer(Long customerId, BigDecimal amount) {
+        if (!customerRepository.existsById(customerId)) {
+            throw new ApiException("Không tìm thấy khách hàng", HttpStatus.NOT_FOUND);
+        }
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ApiException("Số tiền trả phải lớn hơn 0", HttpStatus.BAD_REQUEST);
+        }
+        BigDecimal payAmount = amount.setScale(0, RoundingMode.HALF_UP);
+        if (payAmount.remainder(BigDecimal.valueOf(1000)).compareTo(BigDecimal.ZERO) != 0) {
+            throw new ApiException("Số tiền trả phải là bội số của 1.000 đ", HttpStatus.BAD_REQUEST);
+        }
+        BigDecimal totalUnpaid = debtRepository.sumUnpaidByCustomer(customerId);
+        if (payAmount.compareTo(totalUnpaid) > 0) {
+            throw new ApiException(
+                    "Số tiền trả không được lớn hơn tổng còn nợ " + formatVnd(totalUnpaid),
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+        BigDecimal remaining = payAmount;
+        var debts = debtRepository.findByCustomerIdAndPaidFalseOrderByAmountAscIdAsc(customerId);
+        for (Debt debt : debts) {
+            if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
+                break;
+            }
+            remaining = applyPayment(debt, remaining);
+        }
+        afterCustomerBalanceChange(customerId);
+    }
+
+    /** Trừ payment vào debt; trả về phần tiền còn dư sau khi trừ. */
+    private BigDecimal applyPayment(Debt debt, BigDecimal payment) {
+        if (payment.compareTo(BigDecimal.ZERO) <= 0 || debt.isPaid()) {
+            return payment;
+        }
+        LocalDateTime now = LocalDateTime.now(VN_ZONE);
+        if (payment.compareTo(debt.getAmount()) >= 0) {
+            BigDecimal leftover = payment.subtract(debt.getAmount());
+            debt.setPaid(true);
+            debt.setPaidAt(now);
+            debtRepository.save(debt);
+            return leftover;
+        }
+        debt.setAmount(debt.getAmount().subtract(payment));
+        appendPartialPayNote(debt, payment, now);
+        debtRepository.save(debt);
+        return BigDecimal.ZERO;
+    }
+
+    private void appendPartialPayNote(Debt debt, BigDecimal paidAmount, LocalDateTime at) {
+        String line = "Đã trả -" + formatVnd(paidAmount) + " lúc " + at.format(PARTIAL_NOTE_TIME);
+        String existing = debt.getProductNote();
+        if (existing == null || existing.isBlank()) {
+            debt.setProductNote(line);
+        } else {
+            debt.setProductNote(existing.trim() + "\n" + line);
+        }
+    }
+
+    private static String formatVnd(BigDecimal amount) {
+        DecimalFormat df = new DecimalFormat("#,###", DecimalFormatSymbols.getInstance(Locale.US));
+        df.setRoundingMode(RoundingMode.HALF_UP);
+        return df.format(amount) + " đ";
     }
 
     @Transactional
     public int markPaidBatch(java.util.List<Long> ids) {
         int count = 0;
         LocalDateTime now = LocalDateTime.now(VN_ZONE);
+        java.util.Set<Long> customerIds = new java.util.HashSet<>();
         for (Long id : ids) {
             Debt debt = findDebt(id);
             if (debt.isPaid()) {
@@ -144,9 +310,43 @@ public class DebtService {
             debt.setPaid(true);
             debt.setPaidAt(now);
             debtRepository.save(debt);
+            customerIds.add(debt.getCustomer().getId());
             count++;
         }
+        customerIds.forEach(this::afterCustomerBalanceChange);
         return count;
+    }
+
+    private void afterCustomerBalanceChange(Long customerId) {
+        markQrIfCustomerCleared(customerId);
+        syncCustomerTrashState(customerId);
+    }
+
+    private void markQrIfCustomerCleared(Long customerId) {
+        BigDecimal unpaid = debtRepository.sumUnpaidByCustomer(customerId);
+        if (unpaid.compareTo(BigDecimal.ZERO) <= 0) {
+            debtQrService.markActiveUsedForCustomer(customerId);
+        }
+    }
+
+    /**
+     * Hết nợ → vào thùng rác; còn nợ / mở lại → ra khỏi thùng rác.
+     */
+    @Transactional
+    public void syncCustomerTrashState(Long customerId) {
+        customerRepository.findById(customerId).ifPresent(customer -> {
+            BigDecimal unpaid = debtRepository.sumUnpaidByCustomer(customerId);
+            boolean hasPaid = debtRepository.existsByCustomerIdAndPaidTrue(customerId);
+            if (unpaid.compareTo(BigDecimal.ZERO) <= 0 && hasPaid) {
+                if (customer.getTrashedAt() == null) {
+                    customer.setTrashedAt(LocalDateTime.now(VN_ZONE));
+                    customerRepository.save(customer);
+                }
+            } else if (customer.getTrashedAt() != null) {
+                customer.setTrashedAt(null);
+                customerRepository.save(customer);
+            }
+        });
     }
 
     @Transactional
@@ -158,7 +358,9 @@ public class DebtService {
         }
         debt.setPaid(false);
         debt.setPaidAt(null);
-        return DebtMapper.toDto(debtRepository.save(debt));
+        Debt saved = debtRepository.save(debt);
+        syncCustomerTrashState(debt.getCustomer().getId());
+        return DebtMapper.toDto(saved);
     }
 
     private Debt findDebt(Long id) {
@@ -194,5 +396,13 @@ public class DebtService {
 
     private String normalize(String q) {
         return q == null ? "" : q.trim();
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

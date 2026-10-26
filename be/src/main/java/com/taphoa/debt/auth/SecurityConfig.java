@@ -48,6 +48,28 @@ public class SecurityConfig {
                         .requestMatchers("/api/payments/vtcpay/ipn").permitAll()
                         .requestMatchers("/api/payments/vtcpay/return").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // FE static + SPA routes (app desktop / jar)
+                        .requestMatchers(
+                                "/",
+                                "/index.html",
+                                "/assets/**",
+                                "/favicon.svg",
+                                "/favicon.ico",
+                                "/icons.svg",
+                                "/login",
+                                "/debts",
+                                "/debts/**",
+                                "/customers",
+                                "/customers/**",
+                                "/trash",
+                                "/settings",
+                                "/error",
+                                "/error/**",
+                                "/cards",
+                                "/cards/**",
+                                "/h2-console",
+                                "/h2-console/**"
+                        ).permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

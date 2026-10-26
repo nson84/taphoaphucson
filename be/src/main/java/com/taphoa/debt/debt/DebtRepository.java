@@ -16,16 +16,25 @@ public interface DebtRepository extends JpaRepository<Debt, Long> {
             value = """
                     SELECT d FROM Debt d
                     JOIN d.customer c
-                    WHERE (:q IS NULL OR :q = '' OR LOWER(c.name) LIKE LOWER(CONCAT('%', :q, '%')))
-                    ORDER BY d.paid ASC, d.occurredAt DESC, d.id DESC
+                    WHERE d.paid = false
+                      AND (:q IS NULL OR :q = ''
+                        OR LOWER(c.name) LIKE LOWER(CONCAT('%', :q, '%'))
+                        OR LOWER(COALESCE(d.pickerName, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+                        OR LOWER(COALESCE(d.productNote, '')) LIKE LOWER(CONCAT('%', :q, '%')))
+                      AND (:debtType IS NULL OR d.debtType = :debtType)
                     """,
             countQuery = """
                     SELECT COUNT(d) FROM Debt d
                     JOIN d.customer c
-                    WHERE (:q IS NULL OR :q = '' OR LOWER(c.name) LIKE LOWER(CONCAT('%', :q, '%')))
+                    WHERE d.paid = false
+                      AND (:q IS NULL OR :q = ''
+                        OR LOWER(c.name) LIKE LOWER(CONCAT('%', :q, '%'))
+                        OR LOWER(COALESCE(d.pickerName, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+                        OR LOWER(COALESCE(d.productNote, '')) LIKE LOWER(CONCAT('%', :q, '%')))
+                      AND (:debtType IS NULL OR d.debtType = :debtType)
                     """
     )
-    Page<Debt> searchAll(@Param("q") String q, Pageable pageable);
+    Page<Debt> searchAll(@Param("q") String q, @Param("debtType") DebtType debtType, Pageable pageable);
 
     @Query(
             value = """
@@ -33,7 +42,6 @@ public interface DebtRepository extends JpaRepository<Debt, Long> {
                     WHERE d.customer.id = :customerId
                       AND (:from IS NULL OR d.occurredAt >= :from)
                       AND (:to IS NULL OR d.occurredAt < :to)
-                    ORDER BY d.paid ASC, d.occurredAt DESC, d.id DESC
                     """,
             countQuery = """
                     SELECT COUNT(d) FROM Debt d
@@ -61,5 +69,26 @@ public interface DebtRepository extends JpaRepository<Debt, Long> {
             """)
     BigDecimal sumAllUnpaid();
 
+    @Query("""
+            SELECT COALESCE(SUM(d.amount), 0) FROM Debt d
+            WHERE d.customer.id = :customerId AND d.paid = true
+            """)
+    BigDecimal sumPaidByCustomer(@Param("customerId") Long customerId);
+
+    @Query("""
+            SELECT COALESCE(SUM(d.amount), 0) FROM Debt d
+            JOIN d.customer c
+            WHERE d.paid = true
+              AND c.trashedAt IS NOT NULL
+              AND c.trashedAt >= :cutoff
+            """)
+    BigDecimal sumPaidInTrash(@Param("cutoff") LocalDateTime cutoff);
+
     List<Debt> findAllByCustomerId(Long customerId);
+
+    List<Debt> findByCustomerIdAndPaidFalseOrderByAmountAscIdAsc(Long customerId);
+
+    boolean existsByCustomerIdAndDebtType(Long customerId, DebtType debtType);
+
+    boolean existsByCustomerIdAndPaidTrue(Long customerId);
 }

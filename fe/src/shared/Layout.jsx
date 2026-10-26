@@ -35,7 +35,7 @@ export default function Layout() {
           <NavLink to="/" end>
             Tổng hợp
           </NavLink>
-          <NavLink to="/debts">Danh sách nợ</NavLink>
+          <NavLink to="/debts">Danh sách nợ và ghi nợ</NavLink>
           <NavLink to="/cards">Mua thẻ</NavLink>
         </nav>
         <div className="user-box" ref={menuRef}>
@@ -49,6 +49,15 @@ export default function Layout() {
           </button>
           {menuOpen && (
             <div className="user-dropdown">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false)
+                  navigate('/trash')
+                }}
+              >
+                Thùng rác
+              </button>
               <button
                 type="button"
                 onClick={() => {

@@ -4,6 +4,7 @@ import java.time.Instant;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -24,6 +25,19 @@ public class GlobalExceptionHandler {
                 .findFirst()
                 .map(FieldError::getDefaultMessage)
                 .orElse("Dữ liệu không hợp lệ");
+        return ResponseEntity.badRequest()
+                .body(new ErrorResponse(Instant.now(), HttpStatus.BAD_REQUEST.value(), "Bad Request", message));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleUnreadable(HttpMessageNotReadableException ex) {
+        String raw = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        String message = "Dữ liệu gửi lên không hợp lệ";
+        if (raw != null && (raw.contains("LocalDateTime") || raw.contains("DateTime") || raw.contains("occurredAt"))) {
+            message = "Ngày giờ không hợp lệ";
+        } else if (raw != null && (raw.contains("BigDecimal") || raw.contains("amount"))) {
+            message = "Số tiền không hợp lệ (không được âm hoặc sai định dạng)";
+        }
         return ResponseEntity.badRequest()
                 .body(new ErrorResponse(Instant.now(), HttpStatus.BAD_REQUEST.value(), "Bad Request", message));
     }

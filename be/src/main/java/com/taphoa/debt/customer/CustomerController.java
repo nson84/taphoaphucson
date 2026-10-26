@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.taphoa.debt.common.PageResponse;
 import com.taphoa.debt.debt.DebtDto;
+import com.taphoa.debt.debt.PayAmountRequest;
 
 import jakarta.validation.Valid;
 
@@ -29,9 +30,14 @@ public class CustomerController {
     public PageResponse<CustomerDto> search(
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "amountDesc") String sort,
+            @RequestParam(defaultValue = "false") boolean nameOnly,
+            @RequestParam(defaultValue = "false") boolean filterPersonal,
+            @RequestParam(defaultValue = "false") boolean filterCompany
     ) {
-        return PageResponse.from(customerService.search(q, page, size));
+        return PageResponse.from(
+                customerService.search(q, page, size, sort, nameOnly, filterPersonal, filterCompany));
     }
 
     @GetMapping("/{id}")
@@ -46,9 +52,15 @@ public class CustomerController {
             @RequestParam(required = false) Integer month,
             @RequestParam(required = false) Integer day,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "amountDesc") String sort
     ) {
-        return PageResponse.from(customerService.debts(id, year, month, day, page, size));
+        return PageResponse.from(customerService.debts(id, year, month, day, page, size, sort));
+    }
+
+    @PostMapping("/{id}/pay-amount")
+    public void payAmount(@PathVariable Long id, @Valid @RequestBody PayAmountRequest request) {
+        customerService.payAmount(id, request.amount());
     }
 
     @PostMapping

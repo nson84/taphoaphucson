@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, useState } from 'react'
 import { api, clearToken, getToken, setToken } from '../../shared/api'
+import { clearCardsUnlock } from '../cards/CardsPinGate'
 
 const AuthContext = createContext(null)
 
@@ -30,6 +31,7 @@ export function AuthProvider({ children }) {
         }
         clearToken()
         localStorage.removeItem('taphoa_user')
+        clearCardsUnlock()
         setTokenState(null)
         setUsername('')
       },

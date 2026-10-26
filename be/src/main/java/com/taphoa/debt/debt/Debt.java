@@ -6,8 +6,12 @@ import java.time.LocalDateTime;
 
 import com.taphoa.debt.customer.Customer;
 
+import org.hibernate.annotations.ColumnDefault;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -30,6 +34,11 @@ public class Debt {
     @JoinColumn(name = "customer_id", nullable = false)
     private Customer customer;
 
+    @Enumerated(EnumType.STRING)
+    @ColumnDefault("'PERSONAL'")
+    @Column(name = "debt_type", nullable = false, length = 20)
+    private DebtType debtType = DebtType.PERSONAL;
+
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal amount;
 
@@ -38,6 +47,9 @@ public class Debt {
 
     @Column(name = "customer_note", columnDefinition = "TEXT")
     private String customerNote;
+
+    @Column(name = "picker_name", length = 80)
+    private String pickerName;
 
     @Column(name = "occurred_at", nullable = false)
     private LocalDateTime occurredAt;
@@ -78,6 +90,14 @@ public class Debt {
         this.customer = customer;
     }
 
+    public DebtType getDebtType() {
+        return debtType;
+    }
+
+    public void setDebtType(DebtType debtType) {
+        this.debtType = debtType;
+    }
+
     public BigDecimal getAmount() {
         return amount;
     }
@@ -100,6 +120,14 @@ public class Debt {
 
     public void setCustomerNote(String customerNote) {
         this.customerNote = customerNote;
+    }
+
+    public String getPickerName() {
+        return pickerName;
+    }
+
+    public void setPickerName(String pickerName) {
+        this.pickerName = pickerName;
     }
 
     public LocalDateTime getOccurredAt() {

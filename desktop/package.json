@@ -1,0 +1,69 @@
+{
+  "name": "taphoa-phuc-son",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tạp hóa Phúc Sơn — Quản lý công nợ (Windows)",
+  "main": "main.js",
+  "author": "Tạp hóa Phúc Sơn",
+  "scripts": {
+    "start": "electron .",
+    "start:fe": "set TAPHOA_FE_URL=http://localhost:5173&& electron .",
+    "pack": "electron-builder --win portable --x64",
+    "dist": "electron-builder --win nsis portable --x64"
+  },
+  "build": {
+    "appId": "com.taphoa.phucson.debt",
+    "productName": "Taphoa Phuc Son",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/debt.jar",
+        "to": "debt.jar"
+      },
+      {
+        "from": "resources/jre",
+        "to": "jre"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        },
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "TaphoaPhucSon-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "shortcutName": "Taphoa Phuc Son",
+      "uninstallDisplayName": "Taphoa Phuc Son"
+    },
+    "portable": {
+      "artifactName": "TaphoaPhucSon-Portable.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  }
+}

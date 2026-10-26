@@ -1,43 +1,50 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../shared/api'
-import ConfirmDialog from '../../shared/ConfirmDialog'
+import {
+  AMOUNT_SORT_DESC,
+  amountSortLabel,
+  toggleAmountSort,
+} from '../../shared/amountSort'
 import DateTimeCell from '../../shared/DateTimeCell'
+import { formatCustomerDisplayName } from '../../shared/customerName'
 import { formatMoney } from '../../shared/format'
 import Pagination from '../../shared/Pagination'
+import ExpandableTextCell from '../../shared/ExpandableTextCell'
+import KindFilterButtons from '../../shared/KindFilterButtons'
+import { KIND_FILTER_ALL, customerSuggestUrl, debtTypeFromKindFilter } from '../../shared/kindFilter'
+
+function debtTypeLabel(type) {
+  return type === 'COMPANY' ? 'Công ty' : 'Cá nhân'
+}
 
 export default function DebtListPage() {
-  const [q, setQ] = useState('')
-  const [query, setQuery] = useState('')
+  const [nameDraft, setNameDraft] = useState('')
+  const [nameQuery, setNameQuery] = useState('')
   const [page, setPage] = useState(0)
+  const [amountSort, setAmountSort] = useState(AMOUNT_SORT_DESC)
+  const [kindFilter, setKindFilter] = useState(KIND_FILTER_ALL)
   const [data, setData] = useState({ content: [], totalPages: 0 })
   const [error, setError] = useState('')
-  const [busyId, setBusyId] = useState(null)
-  const [selected, setSelected] = useState(() => new Set())
-  const [batchBusy, setBatchBusy] = useState(false)
-  const [confirm, setConfirm] = useState(null)
-
-  const unpaidIds = useMemo(
-    () => data.content.filter((d) => !d.paid).map((d) => d.id),
-    [data.content],
-  )
-  const allUnpaidSelected = unpaidIds.length > 0 && unpaidIds.every((id) => selected.has(id))
-  const selectedCount = [...selected].filter((id) => unpaidIds.includes(id)).length
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setQuery(q)
-      setPage(0)
-    }, 300)
-    return () => clearTimeout(t)
-  }, [q])
+  const [suggestions, setSuggestions] = useState([])
+  const [showSuggest, setShowSuggest] = useState(false)
+  const [suggestLoading, setSuggestLoading] = useState(false)
+  const nameWrapRef = useRef(null)
+  const suggestSeq = useRef(0)
 
   async function load() {
     try {
-      const res = await api(`/api/debts?q=${encodeURIComponent(query)}&page=${page}&size=20`)
+      const params = new URLSearchParams({
+        page: String(page),
+        size: '20',
+        sort: amountSort,
+      })
+      if (nameQuery.trim()) params.set('q', nameQuery.trim())
+      const debtType = debtTypeFromKindFilter(kindFilter)
+      if (debtType) params.set('debtType', debtType)
+      const res = await api(`/api/debts?${params}`)
       setData(res)
       setError('')
-      setSelected(new Set())
     } catch (e) {
       setError(e.message)
     }
@@ -45,112 +52,157 @@ export default function DebtListPage() {
 
   useEffect(() => {
     load()
-  }, [query, page])
+  }, [nameQuery, page, amountSort, kindFilter])
 
-  function toggleOne(id) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  function toggleAll() {
-    if (allUnpaidSelected) {
-      setSelected(new Set())
+  useEffect(() => {
+    const q = nameDraft.trim()
+    if (q.length < 1) {
+      setSuggestions([])
+      setShowSuggest(false)
+      setSuggestLoading(false)
       return
     }
-    setSelected(new Set(unpaidIds))
+    const seq = ++suggestSeq.current
+    setSuggestLoading(true)
+    const t = setTimeout(() => {
+      api(customerSuggestUrl(q, kindFilter))
+        .then((res) => {
+          if (seq !== suggestSeq.current) return
+          setSuggestions(res.content || [])
+          setShowSuggest(true)
+        })
+        .catch(() => {
+          if (seq !== suggestSeq.current) return
+          setSuggestions([])
+        })
+        .finally(() => {
+          if (seq === suggestSeq.current) setSuggestLoading(false)
+        })
+    }, 200)
+    return () => clearTimeout(t)
+  }, [nameDraft, kindFilter])
+
+  useEffect(() => {
+    function onDocClick(e) {
+      if (nameWrapRef.current && !nameWrapRef.current.contains(e.target)) {
+        setShowSuggest(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [])
+
+  function applyFilters(e) {
+    e?.preventDefault()
+    setPage(0)
+    setNameQuery(nameDraft.trim())
+    setShowSuggest(false)
   }
 
-  async function doPay(id) {
-    setBusyId(id)
-    try {
-      await api(`/api/debts/${id}/pay`, { method: 'POST' })
-      setConfirm(null)
-      await load()
-    } finally {
-      setBusyId(null)
-    }
+  function clearFilters() {
+    setNameDraft('')
+    setNameQuery('')
+    setPage(0)
+    setSuggestions([])
+    setShowSuggest(false)
+    setKindFilter(KIND_FILTER_ALL)
+    setError('')
   }
 
-  async function doPaySelected() {
-    const ids = unpaidIds.filter((id) => selected.has(id))
-    if (ids.length === 0) return
-    setBatchBusy(true)
-    try {
-      await api('/api/debts/pay-batch', {
-        method: 'POST',
-        body: JSON.stringify({ ids }),
-      })
-      setConfirm(null)
-      await load()
-    } finally {
-      setBatchBusy(false)
-    }
+  function onKindFilterChange(next) {
+    setPage(0)
+    setKindFilter(next)
   }
 
-  async function doCancelPay(id, pin) {
-    setBusyId(id)
-    try {
-      await api(`/api/debts/${id}/unpay`, {
-        method: 'POST',
-        body: JSON.stringify({ pin }),
-      })
-      setConfirm(null)
-      await load()
-    } finally {
-      setBusyId(null)
-    }
+  function pickSuggestion(customer) {
+    const name = customer.name
+    setNameDraft(name)
+    setShowSuggest(false)
+    setPage(0)
+    setNameQuery(name)
   }
 
   return (
-    <section className="panel">
+    <section className="panel debt-list-main">
       <div className="panel-head">
-        <h1>Danh sách nợ</h1>
+        <h1>Danh sách nợ và ghi nợ</h1>
         <div className="panel-actions">
-          <button
-            type="button"
-            disabled={selectedCount === 0 || batchBusy}
-            onClick={() =>
-              setConfirm({
-                type: 'pay-batch',
-                title: 'Xác nhận trả nợ hàng loạt',
-                message: `Bạn chắc muốn trả ${selectedCount} khoản nợ đã chọn?`,
-                confirmLabel: 'Trả nợ',
-              })
-            }
-          >
-            Trả nợ đã chọn ({selectedCount})
-          </button>
           <Link className="btn" to="/debts/new">
             + Tạo nợ
           </Link>
         </div>
       </div>
-      <input
-        className="search"
-        placeholder="Tìm theo tên khách (vd: pun)..."
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
+
+      <form className="debt-filter-bar" onSubmit={applyFilters}>
+        <label className="debt-filter-field">
+          Tên khách hàng
+          <div className="debt-filter-suggest-wrap" ref={nameWrapRef}>
+            <input
+              type="text"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onFocus={() => {
+                if (suggestions.length > 0) setShowSuggest(true)
+              }}
+              placeholder="Vd: an, công ty ABC"
+              maxLength={80}
+              autoComplete="off"
+              aria-autocomplete="list"
+              aria-expanded={showSuggest}
+            />
+            {showSuggest && (suggestLoading || suggestions.length > 0 || nameDraft.trim()) && (
+              <ul className="summary-suggest-list" role="listbox">
+                {suggestLoading && <li className="summary-suggest-empty">Đang tìm…</li>}
+                {!suggestLoading && suggestions.length === 0 && (
+                  <li className="summary-suggest-empty">Không có gợi ý</li>
+                )}
+                {!suggestLoading &&
+                  suggestions.map((c) => (
+                    <li key={c.id} role="option">
+                      <button type="button" className="summary-suggest-item" onClick={() => pickSuggestion(c)}>
+                        <span className="summary-suggest-name">
+                          {formatCustomerDisplayName(c.name, c.parentName, c.company)}
+                        </span>
+                        <span
+                          className={`summary-suggest-balance ${Number(c.balance) > 0 ? 'balance-unpaid' : 'balance-paid'}`}
+                        >
+                          {formatMoney(c.balance)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+        </label>
+        <div className="debt-filter-actions">
+          <button type="submit">Tìm kiếm</button>
+          <button type="button" className="btn-cancel" onClick={clearFilters}>
+            Xóa lọc
+          </button>
+          <button
+            type="button"
+            className="ghost amount-sort-btn"
+            onClick={() => {
+              setPage(0)
+              setAmountSort((s) => toggleAmountSort(s))
+            }}
+            title="Đảo chiều sắp xếp theo số tiền"
+          >
+            {amountSortLabel(amountSort)}
+          </button>
+          <KindFilterButtons value={kindFilter} onChange={onKindFilterChange} />
+        </div>
+      </form>
+
       {error && <p className="error">{error}</p>}
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th className="col-check">
-                <input
-                  type="checkbox"
-                  checked={allUnpaidSelected}
-                  disabled={unpaidIds.length === 0}
-                  onChange={toggleAll}
-                  title="Chọn tất cả còn nợ trên trang"
-                  aria-label="Chọn tất cả còn nợ trên trang"
-                />
-              </th>
-              <th>Khách</th>
+              <th>Loại</th>
+              <th>Khách / Công ty</th>
+              <th>Người lấy</th>
               <th>Ngày giờ</th>
               <th>Số tiền</th>
               <th>Sản phẩm</th>
@@ -161,100 +213,49 @@ export default function DebtListPage() {
           <tbody>
             {data.content.map((d) => (
               <tr key={d.id} className={d.paid ? 'row-paid' : 'row-unpaid'}>
-                <td className="col-check">
-                  {!d.paid && (
-                    <input
-                      type="checkbox"
-                      checked={selected.has(d.id)}
-                      onChange={() => toggleOne(d.id)}
-                      aria-label={`Chọn khoản nợ ${d.id}`}
-                    />
-                  )}
+                <td>
+                  <span
+                    className={`debt-type-badge ${d.debtType === 'COMPANY' ? 'type-company' : 'type-personal'}`}
+                  >
+                    {debtTypeLabel(d.debtType)}
+                  </span>
                 </td>
                 <td>
-                  <Link to={`/customers/${d.customerId}`}>{d.customerName}</Link>
+                  <Link to={`/customers/${d.customerId}`}>
+                    {formatCustomerDisplayName(d.customerName, d.parentName, d.debtType === 'COMPANY')}
+                  </Link>
+                </td>
+                <td>
+                  <ExpandableTextCell value={d.pickerName} title="Chi tiết người lấy" />
                 </td>
                 <td>
                   <DateTimeCell value={d.occurredAt} />
                 </td>
                 <td>{formatMoney(d.amount)}</td>
-                <td>{d.productNote || '—'}</td>
+                <td>
+                  <ExpandableTextCell value={d.productNote} title="Chi tiết sản phẩm" />
+                </td>
                 <td>
                   <span className={`status-badge ${d.paid ? 'status-paid' : 'status-unpaid'}`}>
                     {d.paid ? 'Hết nợ' : 'Còn nợ'}
                   </span>
                 </td>
                 <td className="row-actions">
-                  {d.paid ? (
-                    <button
-                      type="button"
-                      className="btn-cancel"
-                      disabled={busyId === d.id}
-                      onClick={() =>
-                        setConfirm({
-                          type: 'cancel',
-                          id: d.id,
-                          title: 'Xác nhận hủy trả nợ',
-                          message: 'Nhập mã PIN để kích hoạt lại khoản nợ này.',
-                          confirmLabel: 'Hủy trả nợ',
-                          requirePin: true,
-                          danger: true,
-                        })
-                      }
-                    >
-                      Hủy
-                    </button>
-                  ) : (
-                    <>
-                      <Link className="btn btn-edit" to={`/debts/${d.id}/edit`}>
-                        Sửa
-                      </Link>
-                      <button
-                        type="button"
-                        className="btn-pay"
-                        disabled={busyId === d.id}
-                        onClick={() =>
-                          setConfirm({
-                            type: 'pay',
-                            id: d.id,
-                            title: 'Xác nhận trả nợ',
-                            message: `Xác nhận đánh dấu đã trả khoản ${formatMoney(d.amount)}?`,
-                            confirmLabel: 'Trả nợ',
-                          })
-                        }
-                      >
-                        Trả nợ
-                      </button>
-                    </>
-                  )}
+                  <Link className="btn" to={`/customers/${d.customerId}`}>
+                    Chi tiết
+                  </Link>
                 </td>
               </tr>
             ))}
             {data.content.length === 0 && (
               <tr>
-                <td colSpan={7}>Không có dữ liệu</td>
+                <td colSpan={8}>Không có dữ liệu</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
       <Pagination page={page} totalPages={data.totalPages} onChange={setPage} />
-
-      <ConfirmDialog
-        open={Boolean(confirm)}
-        title={confirm?.title}
-        message={confirm?.message}
-        confirmLabel={confirm?.confirmLabel}
-        requirePin={Boolean(confirm?.requirePin)}
-        danger={Boolean(confirm?.danger)}
-        busy={busyId != null || batchBusy}
-        onClose={() => setConfirm(null)}
-        onConfirm={async (pin) => {
-          if (confirm?.type === 'pay') await doPay(confirm.id)
-          else if (confirm?.type === 'pay-batch') await doPaySelected()
-          else if (confirm?.type === 'cancel') await doCancelPay(confirm.id, pin)
-        }}
-      />
     </section>
   )
 }

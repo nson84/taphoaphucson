@@ -26,10 +26,13 @@ public class SummaryController {
     public SummaryDto summary(
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "amountDesc") String sort,
+            @RequestParam(defaultValue = "false") boolean filterPersonal,
+            @RequestParam(defaultValue = "false") boolean filterCompany
     ) {
         BigDecimal total = debtRepository.sumAllUnpaid();
-        var customersPage = customerService.search(q, page, size);
+        var customersPage = customerService.search(q, page, size, sort, false, filterPersonal, filterCompany);
         return new SummaryDto(
                 total,
                 customersPage.getTotalElements(),

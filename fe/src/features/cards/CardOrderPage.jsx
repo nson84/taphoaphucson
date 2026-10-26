@@ -29,7 +29,9 @@ export default function CardOrderPage() {
     return (
       <section className="panel form-page">
         <p className="error form-error">{error}</p>
-        <Link to="/cards">← Mua thẻ</Link>
+        <Link className="form-back" to="/cards">
+          ← Mua thẻ
+        </Link>
       </section>
     )
   }

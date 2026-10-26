@@ -1,6 +1,7 @@
 package com.taphoa.debt.customer;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -24,6 +25,14 @@ public class Customer {
 
     @Column(columnDefinition = "TEXT")
     private String note;
+
+    /** Tên bố/mẹ — dùng cho khách cá nhân, có thể trống. */
+    @Column(name = "parent_name", length = 80)
+    private String parentName;
+
+    /** Thời điểm khách hết nợ và vào thùng rác; null = đang ở danh sách chính. */
+    @Column(name = "trashed_at")
+    private LocalDateTime trashedAt;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -61,6 +70,22 @@ public class Customer {
 
     public void setNote(String note) {
         this.note = note;
+    }
+
+    public String getParentName() {
+        return parentName;
+    }
+
+    public void setParentName(String parentName) {
+        this.parentName = parentName;
+    }
+
+    public LocalDateTime getTrashedAt() {
+        return trashedAt;
+    }
+
+    public void setTrashedAt(LocalDateTime trashedAt) {
+        this.trashedAt = trashedAt;
     }
 
     public Instant getCreatedAt() {

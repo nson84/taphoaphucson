@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../shared/api'
+import { formatCustomerDisplayName } from '../../shared/customerName'
 import { formatMoney } from '../../shared/format'
 import Pagination from '../../shared/Pagination'
 
@@ -48,7 +49,7 @@ export default function CustomerListPage() {
           <tbody>
             {data.content.map((c) => (
               <tr key={c.id} className={Number(c.balance) > 0 ? 'row-unpaid' : 'row-paid'}>
-                <td>{c.name}</td>
+                <td>{formatCustomerDisplayName(c.name, c.parentName, c.company)}</td>
                 <td>{c.note || '—'}</td>
                 <td>
                   <span className={Number(c.balance) > 0 ? 'balance-unpaid' : 'balance-paid'}>

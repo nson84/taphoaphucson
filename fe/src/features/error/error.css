@@ -1,0 +1,124 @@
+.error-page {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.error-card {
+  width: min(520px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  padding: 2rem 1.75rem 1.75rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.error-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 5px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.error-card[data-code="401"]::before {
+  background: linear-gradient(90deg, #6b5b2a, var(--warning));
+}
+
+.error-card[data-code="403"]::before {
+  background: linear-gradient(90deg, #7a3a1f, var(--accent-2));
+}
+
+.error-card[data-code="404"]::before {
+  background: linear-gradient(90deg, var(--accent), #3d8f6a);
+}
+
+.error-card[data-code="500"]::before {
+  background: linear-gradient(90deg, #7a2a22, var(--danger));
+}
+
+.error-code {
+  margin: 0;
+  font-size: clamp(3.5rem, 12vw, 5.5rem);
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  background: linear-gradient(135deg, var(--ink), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.error-card[data-code="401"] .error-code {
+  background: linear-gradient(135deg, var(--warning-ink), var(--warning));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.error-card[data-code="403"] .error-code {
+  background: linear-gradient(135deg, #5c2a12, var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.error-card[data-code="500"] .error-code {
+  background: linear-gradient(135deg, #5c1c16, var(--danger));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.error-title {
+  margin: 0.85rem 0 0.45rem;
+  font-size: 1.45rem;
+  font-weight: 750;
+  color: var(--ink);
+}
+
+.error-desc {
+  margin: 0 auto 1.4rem;
+  max-width: 36ch;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 0.98rem;
+}
+
+.error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+}
+
+.error-actions .btn,
+.error-actions button {
+  min-width: 8.5rem;
+}
+
+.error-brand {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 650;
+}
+
+@media (max-width: 480px) {
+  .error-card {
+    padding: 1.6rem 1.2rem 1.35rem;
+    border-radius: 18px;
+  }
+
+  .error-actions {
+    flex-direction: column;
+  }
+
+  .error-actions .btn,
+  .error-actions button {
+    width: 100%;
+  }
+}

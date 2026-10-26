@@ -1,0 +1,15 @@
+---
+description: Chỉ báo hoàn thành khi code đã chạy được thật
+alwaysApply: true
+---
+
+# Runnable before done
+
+After writing or changing code, do **not** mark the task complete until it actually runs:
+
+1. Build/start the affected app (backend, frontend, or both).
+2. Hit the affected API or open the affected screen and confirm it works.
+3. Run related automated tests when applicable.
+4. Never claim “done” from code edits alone — show evidence it runs (command output, HTTP 200, UI without error).
+
+If it does not run: report the error and next fix — do not mark complete.

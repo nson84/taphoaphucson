@@ -10,12 +10,12 @@ description: >-
 ## Nguyên tắc
 
 - Không docstring thừa cho hàm tự giải thích.
-- README phản ánh thật: `be` (`mvnw spring-boot:run`), `fe` (`npm run dev`), MySQL `tap_hoa`, admin/admin123, PIN mặc định.
-- Cập nhật README khi đổi script setup, cấu trúc thư mục, cách deploy (`deploy/`).
+- README phản ánh thật: chạy local 1 máy; `be` (`mvnw` + profile `local` / H2), `fe` (`npm run dev`), admin/admin123, PIN mặc định.
+- Cập nhật README khi đổi script setup hoặc cấu trúc thư mục. Không có phần deploy.
 - Không tạo file markdown mới ngoài README trừ khi user yêu cầu.
 
 ## Gợi ý nội dung README (khi cập nhật)
 
-- Chạy local FE/BE/MySQL
+- Chạy local FE/BE (H2 profile `local`)
 - Tài khoản demo
-- Cấu trúc `fe/` / `be/` / `scripts/` / `deploy/`
+- Cấu trúc `fe/` / `be/` / `scripts/`

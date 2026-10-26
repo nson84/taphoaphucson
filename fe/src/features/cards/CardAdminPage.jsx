@@ -54,7 +54,7 @@ export default function CardAdminPage() {
   }
 
   return (
-    <section className="panel form-page" style={{ maxWidth: 900 }}>
+    <section className="panel form-page">
       <div className="form-page-head">
         <Link className="form-back" to="/cards">
           ← Mua thẻ
@@ -143,7 +143,7 @@ export default function CardAdminPage() {
             </label>
             {localError && <p className="error">{localError}</p>}
             <div className="actions">
-              <button type="button" className="ghost" onClick={() => setConfirm(null)} disabled={busy}>
+              <button type="button" className="btn-cancel" onClick={() => setConfirm(null)} disabled={busy}>
                 Đóng
               </button>
               <button type="button" className="btn-pay" onClick={fulfill} disabled={busy}>

@@ -1,5 +1,7 @@
 package com.taphoa.debt.debt;
 
+import java.math.BigDecimal;
+
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,10 +29,12 @@ public class DebtController {
     @GetMapping
     public PageResponse<DebtDto> search(
             @RequestParam(required = false) String q,
+            @RequestParam(required = false) DebtType debtType,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = AmountSort.DESC) String sort
     ) {
-        return PageResponse.from(debtService.search(q, page, size));
+        return PageResponse.from(debtService.search(q, debtType, page, size, sort));
     }
 
     @GetMapping("/{id}")
@@ -54,8 +58,10 @@ public class DebtController {
     }
 
     @PostMapping("/{id}/pay")
-    public DebtDto pay(@PathVariable Long id) {
-        return debtService.markPaid(id);
+    public DebtDto pay(@PathVariable Long id, @RequestBody(required = false) PayRequest request) {
+        BigDecimal amount = request == null ? null : request.amount();
+        boolean cascade = request != null && Boolean.TRUE.equals(request.cascadeRemainder());
+        return debtService.pay(id, amount, cascade);
     }
 
     @PostMapping("/pay-batch")

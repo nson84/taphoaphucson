@@ -9,7 +9,7 @@ import jakarta.validation.constraints.NotNull;
 
 public record CreateDebtQrRequest(
         @NotNull(message = "Số tiền QR không được trống")
-        @DecimalMin(value = "1000", inclusive = true, message = "Số tiền QR tối thiểu 1.000 đ")
+        @DecimalMin(value = "1000", inclusive = true, message = "Khoản nợ không thể dưới 1.000 đ")
         @MultipleOfThousand
         BigDecimal amount
 ) {

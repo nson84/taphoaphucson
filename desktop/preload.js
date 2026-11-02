@@ -6,7 +6,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
 contextBridge.exposeInMainWorld('taphoaDesktop', {
   canSilentPrint: true,
-  printSilent: () => ipcRenderer.invoke('print-silent'),
+  printSilent: (options) => ipcRenderer.invoke('print-silent', options || {}),
 
   pickBackupFolder: () => ipcRenderer.invoke('pick-backup-folder'),
   getBackupFolder: () => ipcRenderer.invoke('get-backup-folder'),

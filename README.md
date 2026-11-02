@@ -1,34 +1,29 @@
 # Tạp hóa Phúc Sơn — Quản lý công nợ
 
-Ứng dụng ghi công nợ cửa hàng tạp hóa nhỏ. Chạy **local trên 1 máy**, không cần deploy.
+Ứng dụng ghi công nợ + bán hàng tạp hóa nhỏ. Chạy **local trên 1 máy**, không cần deploy cloud.
 
-- **FE:** React (Vite) — thư mục `fe/`
-- **BE:** Spring Boot (REST, feature packages) — thư mục `be/`
-- **DB:** H2 file (mặc định local) hoặc MySQL tùy chọn
+- **FE:** React (Vite) — `fe/`
+- **BE:** Spring Boot — `be/`
+- **DB chuẩn:** **MySQL 8** (`tap_hoa`) — dùng cho dev, app desktop, và dữ liệu thật
+- **Desktop:** Electron (`desktop/`) đóng gói BE + FE
 
-## Chức năng
+## Quy trình dev / AI (Cursor)
 
-- Đăng nhập / đăng xuất (1 tài khoản admin)
-- CRUD khoản nợ (tên khách, ngày giờ VN, ghi chú khách, số tiền, ghi chú sản phẩm)
-- Chi tiết khách: lọc nợ theo năm / tháng / ngày, nút **Trả nợ** (khóa dòng và đẩy xuống cuối)
-- Tổng hợp nợ, phân trang, tìm theo tên (chứa chuỗi, không phân biệt hoa thường)
+- **[docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md)** — đọc quy tắc BE/FE, `docs/features/*.md`, chạy test/build, kiểm tra UI (DevTools MCP) trước khi báo xong.
+- Rules: `.cursor/rules/` · Flow: `docs/flow/` · Feature docs: `docs/features/`
 
-## Chạy local
+## Chức năng chính
 
-### Cách nhanh (H2, không cần MySQL) — khuyến nghị 1 máy
+- Đăng nhập / PIN (admin)
+- Công nợ khách, tổng hợp, trả nợ, QR
+- Hàng hóa (đa ĐVT), POS bán hàng, lịch sử bán
+- Mua thẻ, thùng rác, backup
 
-```powershell
-cd be
-.\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
-```
+## Chạy local (MySQL — chuẩn)
 
-Dữ liệu lưu tại `be/data/`. Backup bằng cách copy thư mục đó.
-
-### Cách MySQL (tùy chọn)
-
-1. Sửa mật khẩu DB trong `be/src/main/resources/application.properties` (`DB_USER` / `DB_PASSWORD`) hoặc set env.
-2. Chạy MySQL (local hoặc `docker compose -f docker-compose.dev.yml up -d`).
-3. Backend:
+1. Cài / bật **MySQL 8**, tạo DB tự động qua JDBC (`createDatabaseIfNotExist`) hoặc sẵn schema `tap_hoa`.
+2. User/pass mặc định trong `be/src/main/resources/application.properties`: `root` / `123456` (hoặc env `DB_USER` / `DB_PASSWORD`).
+3. Backend (Flyway chạy migration):
 
 ```powershell
 cd be
@@ -36,31 +31,40 @@ cd be
 ```
 
 API: `http://localhost:8080`  
-Tài khoản mặc định: `admin` / `admin123`
+Tài khoản: `admin` / `admin123` — PIN mặc định: `123456`
 
-### Frontend
+4. Frontend:
 
-```bash
+```powershell
 cd fe
 npm install
 npm run dev
 ```
 
-Mở `http://localhost:5173`
+Mở `http://localhost:5173` (proxy API → `:8080`).
 
-## App Windows (.exe) — 1 máy cửa hàng
-
-App đóng gói sẵn **Java 17** — máy cửa hàng **không cần cài Java**.
+## App Windows (.exe)
 
 ```powershell
 cd scripts
 .\build-desktop.ps1
 ```
 
-File ra tại `desktop/dist/` (script cũng copy ra Desktop):
-- `TaphoaPhucSon-Portable.exe` — chạy luôn
-- `TaphoaPhucSon-*-Setup.exe` — bản cài
+Ra `desktop/dist/`:
+- `TaphoaPhucSon-Portable.exe`
+- `TaphoaPhucSon-*-Setup.exe`
 
-Đăng nhập: `admin` / `admin123`  
-App desktop dùng **MySQL** (`tap_hoa`, user `root` / `123456`) — cần MySQL đang chạy trên máy.  
-Backup: trong app **Cài đặt → Backup** (mật khẩu `842003`).
+App desktop start BE với profile **`mysql`** → cần **MySQL đang chạy** trên máy (`tap_hoa`, `root`/`123456` theo `application-mysql.properties`).  
+Máy cửa hàng **không cần cài Java** (JRE đóng gói sẵn).  
+Đăng nhập: `admin` / `admin123`. Backup: **Cài đặt → Backup** (không cần mật khẩu riêng).
+
+## Ghi chú kỹ thuật (không dùng cho shop)
+
+| Mục | DB |
+|:---|:---|
+| Dev / desktop / dữ liệu thật | **MySQL** |
+| Integration test (`application-test`) | H2 **in-memory** (chỉ CI/test) |
+| Profile `local` (tùy chọn) | Dev máy — vẫn **MySQL** (kế thừa `application.properties`) |
+| Profile `h2` (tùy chọn) | H2 file — **không** dùng cho app cài; Flyway tắt |
+
+Không chạy desktop hoặc import hàng thật trên profile `h2`.

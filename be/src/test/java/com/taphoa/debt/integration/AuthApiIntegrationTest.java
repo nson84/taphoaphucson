@@ -48,12 +48,12 @@ class AuthApiIntegrationTest {
     }
 
     @Test
-    void protectedEndpoint_withoutToken_forbidden() throws Exception {
-        // Spring Security mặc định trả 403 khi chưa authenticated (stateless JWT)
+    void protectedEndpoint_withoutToken_unauthorized() throws Exception {
         mockMvc.perform(post("/api/debts")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Chưa đăng nhập"));
     }
 
     @Test

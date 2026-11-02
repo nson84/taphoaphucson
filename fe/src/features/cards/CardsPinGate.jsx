@@ -18,7 +18,7 @@ export default function CardsPinGate() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Rời khu vực Mua thẻ (sang Tổng hợp / Danh sách nợ…) → khóa lại, vào lại phải nhập PIN
+  // Rời khu vực Mua thẻ (sang Tổng hợp…) → khóa lại, vào lại phải nhập PIN
   useEffect(() => {
     return () => clearCardsUnlock()
   }, [])
@@ -35,6 +35,7 @@ export default function CardsPinGate() {
       await api('/api/profile/pin/verify', {
         method: 'POST',
         body: JSON.stringify({ pin: pin.trim() }),
+        inlineForbidden: true,
       })
       sessionStorage.setItem(UNLOCK_KEY, '1')
       setUnlocked(true)

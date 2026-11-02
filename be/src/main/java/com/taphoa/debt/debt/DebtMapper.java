@@ -19,6 +19,7 @@ public final class DebtMapper {
                 debt.getOccurredAt(),
                 debt.isPaid(),
                 debt.getPaidAt(),
+                debt.getSaleId(),
                 debt.getCreatedAt(),
                 debt.getUpdatedAt()
         );

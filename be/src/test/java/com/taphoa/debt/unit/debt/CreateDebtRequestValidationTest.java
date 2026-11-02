@@ -60,12 +60,13 @@ class CreateDebtRequestValidationTest {
     @Test
     void amountNotRoundThousand_rejected() {
         assertThat(messages(requestWithAmount("1001")))
-                .anyMatch(m -> m.contains("tròn nghìn"));
+                .anyMatch(m -> m.contains("1,500"));
     }
 
     @Test
     void amountRoundThousand_accepted() {
         assertThat(messages(requestWithAmount("5000"))).isEmpty();
+        assertThat(messages(requestWithAmount("1500"))).isEmpty();
     }
 
     @Test
@@ -90,10 +91,10 @@ class CreateDebtRequestValidationTest {
                 null,
                 "Người lấy",
                 new BigDecimal("1000"),
-                "x".repeat(201),
+                "x".repeat(2001),
                 LocalDateTime.now()
         );
-        assertThat(messages(request)).anyMatch(m -> m.contains("200"));
+        assertThat(messages(request)).anyMatch(m -> m.contains("2000"));
     }
 
     @Test

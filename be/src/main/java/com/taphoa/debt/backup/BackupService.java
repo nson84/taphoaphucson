@@ -10,6 +10,7 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,7 +19,6 @@ import java.util.Set;
 
 import javax.sql.DataSource;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -36,21 +36,10 @@ public class BackupService {
 
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
-    private final String backupPassword;
 
-    public BackupService(
-            DataSource dataSource,
-            @Value("${app.backup.password:842003}") String backupPassword
-    ) {
+    public BackupService(DataSource dataSource) {
         this.dataSource = dataSource;
         this.objectMapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
-        this.backupPassword = backupPassword;
-    }
-
-    public void verifyPassword(String password) {
-        if (password == null || !backupPassword.equals(password)) {
-            throw new ApiException("Mật khẩu backup không đúng", HttpStatus.FORBIDDEN);
-        }
     }
 
     public String suggestedFileName() {
@@ -82,7 +71,9 @@ public class BackupService {
         Map<String, List<Map<String, Object>>> tables = new LinkedHashMap<>();
         DatabaseMetaData meta = conn.getMetaData();
         String catalog = conn.getCatalog();
-        try (ResultSet rs = meta.getTables(catalog, null, "%", new String[] {"TABLE"})) {
+        // MySQL: getSchema() = null (phạm vi theo catalog). H2/DB khác: giới hạn schema hiện tại, bỏ INFORMATION_SCHEMA.
+        String schema = conn.getSchema();
+        try (ResultSet rs = meta.getTables(catalog, schema, "%", new String[] {"TABLE"})) {
             while (rs.next()) {
                 String table = rs.getString("TABLE_NAME");
                 if (table == null || SKIP_TABLES.contains(table) || SKIP_TABLES.contains(table.toLowerCase())) {
@@ -104,15 +95,34 @@ public class BackupService {
             while (rs.next()) {
                 Map<String, Object> row = new LinkedHashMap<>();
                 for (int i = 1; i <= cols; i++) {
-                    Object value = rs.getObject(i);
-                    if (value instanceof byte[] bytes) {
-                        value = new String(bytes, StandardCharsets.UTF_8);
-                    }
-                    row.put(md.getColumnLabel(i), value);
+                    row.put(md.getColumnLabel(i), normalizeValue(rs.getObject(i)));
                 }
                 rows.add(row);
             }
         }
         return rows;
+    }
+
+    /**
+     * Đưa giá trị JDBC về dạng JSON được: MySQL driver trả {@code LocalDateTime/LocalDate/LocalTime}
+     * cho cột DATETIME/DATE/TIME, mà ObjectMapper trần không serialize được → backup lỗi khi có dữ liệu.
+     */
+    static Object normalizeValue(Object value) {
+        if (value instanceof byte[] bytes) {
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+        if (value instanceof TemporalAccessor temporal) {
+            return temporal.toString();
+        }
+        if (value instanceof java.sql.Timestamp ts) {
+            return ts.toLocalDateTime().toString();
+        }
+        if (value instanceof java.sql.Date d) {
+            return d.toLocalDate().toString();
+        }
+        if (value instanceof java.sql.Time t) {
+            return t.toLocalTime().toString();
+        }
+        return value;
     }
 }

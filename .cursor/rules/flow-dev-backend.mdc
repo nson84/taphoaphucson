@@ -1,0 +1,23 @@
+---
+description: Flow session Backend — Spring Boot be/
+globs: be/**/*
+alwaysApply: false
+---
+
+# Flow Backend (`be/`)
+
+Chi tiết: [docs/flow/flow-dev-backend.md](docs/flow/flow-dev-backend.md)
+
+## Trong session BE
+
+- 1 nhóm API = 1 session; trỏ feature đã xong làm mẫu style
+- Luôn DTO — không trả entity ra API
+- LAZY mặc định; tránh N+1
+- Test: happy + validation + 401/403; viết/ cập nhật test integration khi đụng API
+- Migration Flyway trong `be/src/main/resources/db/migration/` khi đổi schema
+- Xong: cập nhật `docs/PROGRESS.md` nếu đang track; commit `feat(be): ...`
+
+## Không
+
+- Nhồi UI React vào cùng session BE trừ khi user yêu cầu rõ
+- Sửa contract/API mà không cập nhật docs liên quan (khi có `API_CONTRACT.md`)

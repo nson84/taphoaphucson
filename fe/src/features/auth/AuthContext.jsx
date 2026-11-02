@@ -8,11 +8,20 @@ export function AuthProvider({ children }) {
   const [token, setTokenState] = useState(() => getToken())
   const [username, setUsername] = useState(() => localStorage.getItem('taphoa_user') || '')
 
+  function resetLocalSession() {
+    clearToken()
+    localStorage.removeItem('taphoa_user')
+    clearCardsUnlock()
+    setTokenState(null)
+    setUsername('')
+  }
+
   const value = useMemo(
     () => ({
       token,
       username,
       isAuthenticated: Boolean(token),
+      resetLocalSession,
       async login(user, password) {
         const data = await api('/api/auth/login', {
           method: 'POST',
@@ -29,11 +38,7 @@ export function AuthProvider({ children }) {
         } catch {
           /* ignore */
         }
-        clearToken()
-        localStorage.removeItem('taphoa_user')
-        clearCardsUnlock()
-        setTokenState(null)
-        setUsername('')
+        resetLocalSession()
       },
     }),
     [token, username],

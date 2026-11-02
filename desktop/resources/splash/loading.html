@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <title>Đang mở…</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #111;
+        overflow: hidden;
+        font-family: 'Segoe UI', sans-serif;
+      }
+      .stage {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #111;
+      }
+      img.splash {
+        max-width: 100%;
+        max-height: 100%;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+        object-position: center;
+      }
+      .hint {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 1.35rem;
+        margin: 0;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.92);
+        font-size: 1.05rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.75);
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <img id="splash" class="splash" alt="" />
+    </div>
+    <audio id="bgm" loop preload="auto"></audio>
+    <p class="hint">Tạp hóa Phúc Sơn — Đang khởi động, vui lòng chờ…</p>
+    <script>
+      const params = new URLSearchParams(location.search)
+      const img = document.getElementById('splash')
+      const audio = document.getElementById('bgm')
+      img.src = params.get('src') || './splash.jpg'
+      audio.src = params.get('audio') || './splash.mp3'
+      audio.volume = 1
+
+      function playMusic() {
+        const p = audio.play()
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {
+            // Autoplay bị chặn: thử lại khi có tương tác (click/phím)
+            const once = () => {
+              audio.play().catch(() => {})
+              document.removeEventListener('click', once)
+              document.removeEventListener('keydown', once)
+            }
+            document.addEventListener('click', once)
+            document.addEventListener('keydown', once)
+          })
+        }
+      }
+
+      audio.addEventListener('canplay', playMusic)
+      setTimeout(playMusic, 300)
+    </script>
+  </body>
+</html>

@@ -1,16 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getToken } from './api'
-
-const BACKUP_PASSWORD_KEY = 'taphoa.backupPassword'
-
-export function rememberBackupPassword(password) {
-  if (password) sessionStorage.setItem(BACKUP_PASSWORD_KEY, password)
-  else sessionStorage.removeItem(BACKUP_PASSWORD_KEY)
-}
-
-export function readRememberedBackupPassword() {
-  return sessionStorage.getItem(BACKUP_PASSWORD_KEY) || ''
-}
+import { countUnpaidPosInvoices } from '../features/pos/posDraftStats'
 
 /**
  * Chỉ dùng trên app desktop (Electron): chặn nút X / thoát,
@@ -21,14 +11,14 @@ export default function ExitBackupDialog() {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [password, setPassword] = useState('')
   const [folder, setFolder] = useState('')
+  const [unpaidPos, setUnpaidPos] = useState(0)
 
   useEffect(() => {
     if (!desktop?.onCloseRequest) return undefined
     return desktop.onCloseRequest(async () => {
       setError('')
-      setPassword(readRememberedBackupPassword())
+      setUnpaidPos(countUnpaidPosInvoices())
       try {
         const saved = (await desktop.getBackupFolder?.()) || ''
         setFolder(saved)
@@ -45,6 +35,31 @@ export default function ExitBackupDialog() {
     setOpen(false)
     setError('')
     setBusy(false)
+  }
+
+  async function quitWithoutBackup() {
+    setError('')
+    setBusy(true)
+    try {
+      setOpen(false)
+      await desktop.allowCloseAndQuit()
+      setBusy(false)
+    } catch (err) {
+      setError(err.message || 'Không tắt được phần mềm')
+      setOpen(true)
+      setBusy(false)
+    }
+  }
+
+  async function changeFolder() {
+    if (!desktop?.pickBackupFolder) return
+    setError('')
+    try {
+      const dir = (await desktop.pickBackupFolder()) || ''
+      if (dir) setFolder(dir)
+    } catch (err) {
+      setError(err.message || 'Không chọn được thư mục')
+    }
   }
 
   async function backupAndQuit() {
@@ -68,20 +83,11 @@ export default function ExitBackupDialog() {
         return
       }
 
-      const pwd = password.trim()
-      if (!pwd) {
-        setError('Nhập mật khẩu Backup để tạo file')
-        setBusy(false)
-        return
-      }
-
       const res = await fetch('/api/settings/backup/download', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           Authorization: `Bearer ${getToken() || ''}`,
         },
-        body: JSON.stringify({ password: pwd }),
       })
       if (res.status === 401) {
         window.location.href = '/login'
@@ -111,9 +117,9 @@ export default function ExitBackupDialog() {
         throw new Error(written?.error || 'Không ghi được file vào thư mục đã chọn')
       }
 
-      rememberBackupPassword(pwd)
       setOpen(false)
       await desktop.allowCloseAndQuit()
+      setBusy(false)
     } catch (err) {
       setError(err.message || 'Sao lưu thất bại')
       setBusy(false)
@@ -134,30 +140,36 @@ export default function ExitBackupDialog() {
           <strong className="exit-backup-emph">cuối cùng</strong> trước khi hết ca làm việc không?
         </h2>
         <p className="exit-backup-lead">
-          Nếu đúng là hết ca: tải dữ liệu xuống thư mục đã chọn rồi tắt phần mềm. Nếu bấm nhầm nút
-          đóng: chọn ở lại.
+          Chọn một trong ba: tắt luôn (không lưu dữ liệu), lưu dữ liệu rồi tắt, hoặc ở lại phần
+          mềm nếu bấm nhầm nút đóng.
         </p>
 
-        {folder ? (
-          <p className="muted exit-backup-folder">Thư mục: {folder}</p>
-        ) : (
-          <p className="muted exit-backup-folder">
-            Chưa có thư mục — sẽ hỏi chọn thư mục khi bấm tải xuống.
+        {unpaidPos > 0 && (
+          <p className="exit-backup-pos-hint" role="status">
+            Còn {unpaidPos} hóa đơn chưa thanh toán (đã lưu tạm trên máy) — mở lại phần mềm sẽ
+            khôi phục giỏ hàng. Không tự tạo hóa đơn trên hệ thống khi tắt.
           </p>
         )}
 
-        <label className="field full">
-          <span className="field-label">Mật khẩu Backup</span>
-          <input
-            type="password"
-            inputMode="numeric"
-            autoComplete="off"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Nhập mật khẩu backup"
-            disabled={busy}
-          />
-        </label>
+        {folder ? (
+          <p className="muted exit-backup-folder">
+            Thư mục sao lưu: {folder}{' '}
+            {desktop?.pickBackupFolder && (
+              <button
+                type="button"
+                className="link-btn exit-backup-change"
+                onClick={changeFolder}
+                disabled={busy}
+              >
+                Đổi thư mục
+              </button>
+            )}
+          </p>
+        ) : (
+          <p className="muted exit-backup-folder">
+            Chưa có thư mục — sẽ hỏi chọn thư mục khi bấm lưu dữ liệu.
+          </p>
+        )}
 
         {error && (
           <p className="error" role="alert">
@@ -168,14 +180,22 @@ export default function ExitBackupDialog() {
         <div className="exit-backup-actions">
           <button
             type="button"
+            className="btn-lg exit-backup-nosave"
+            onClick={quitWithoutBackup}
+            disabled={busy}
+          >
+            Tắt phần mềm, không lưu dữ liệu
+          </button>
+          <button
+            type="button"
             className="btn-lg exit-backup-save"
             onClick={backupAndQuit}
             disabled={busy}
           >
-            {busy ? 'Đang sao lưu…' : 'Tải dữ liệu xuống và Tắt phần mềm'}
+            {busy ? 'Đang sao lưu…' : 'Lưu dữ liệu và Tắt phần mềm'}
           </button>
           <button type="button" className="btn-cancel btn-lg" onClick={stay} disabled={busy}>
-            Không, tôi vẫn muốn ở lại phần mềm
+            Ở lại phần mềm
           </button>
         </div>
       </div>

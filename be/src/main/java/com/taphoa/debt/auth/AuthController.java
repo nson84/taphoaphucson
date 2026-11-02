@@ -18,20 +18,30 @@ public class AuthController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final AttemptLimiter attemptLimiter;
 
-    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
+    public AuthController(
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            JwtService jwtService,
+            AttemptLimiter attemptLimiter
+    ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.attemptLimiter = attemptLimiter;
     }
 
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
-        User user = userRepository.findByUsername(request.username())
-                .orElseThrow(() -> new ApiException("Sai tài khoản hoặc mật khẩu", HttpStatus.UNAUTHORIZED));
-        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        String key = "login:" + request.username();
+        attemptLimiter.checkAllowed(key);
+        User user = userRepository.findByUsername(request.username()).orElse(null);
+        if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            attemptLimiter.recordFailure(key);
             throw new ApiException("Sai tài khoản hoặc mật khẩu", HttpStatus.UNAUTHORIZED);
         }
+        attemptLimiter.recordSuccess(key);
         return new LoginResponse(jwtService.generateToken(user.getUsername()), user.getUsername());
     }
 

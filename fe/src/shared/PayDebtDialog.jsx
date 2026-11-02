@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { formatMoney, formatMoneyInput, parseMoneyInput } from './format'
+import { debtAmountError } from './moneyValidation'
 
 /**
  * Trả hết / trả theo số tiền.
@@ -56,8 +57,9 @@ export default function PayDebtDialog({
       setError('Nhập số tiền cần trả')
       return
     }
-    if (n % 1000 !== 0) {
-      setError('Số tiền trả phải là bội số của 1.000 đ')
+    const shapeError = debtAmountError(n)
+    if (shapeError) {
+      setError(shapeError)
       return
     }
     if (n > totalMax) {

@@ -1,0 +1,45 @@
+---
+description: Flow phát triển Cursor — 3 quy tắc vàng + docs/flow (fullstack Phúc Sơn)
+alwaysApply: true
+---
+
+# Flow Dev (Cursor)
+
+Dự án này là **fullstack monorepo**: `be/` (Spring Boot) + `fe/` (React/Vite).
+
+## Ba quy tắc vàng
+
+1. **Docs / rules trước, code sau** — không nhảy feature khi chưa rõ contract/pages.
+2. **1 feature = 1 session** — không nhồi BE+FE hoặc nhiều feature vào một session dài.
+3. **Test trước khi sang feature mới** — API/Swagger hoặc browser; regression khi đụng code cũ.
+
+## Bỏ / xóa phần (bắt buộc fullstack)
+
+Khi user bảo **bỏ / xóa / gỡ / không dùng nữa** một phần (màn hình, API, field, module…):
+
+1. **Xóa cả `be/` và `fe/`** — không chỉ ẩn UI hay comment FE; không để API/entity/DTO/test BE chết dư.
+2. Dọn theo chuỗi: code FE (page, route, nav, shared) → code BE (controller, service, entity nếu không còn dùng) → migration chỉ khi cần và an toàn dữ liệu → test liên quan.
+3. Cập nhật docs cùng lúc: `docs/features/<name>.md`, `API_CONTRACT.md`, `PAGES.md`, `PROGRESS.md` (và `DECISION_LOG.md` nếu là quyết định bỏ hẳn).
+4. Không để “nợ kỹ thuật” kiểu FE đã mất nhưng BE vẫn expose, hoặc ngược lại — trừ khi user **explicit** chỉ xóa một phía.
+
+## Khi làm việc
+
+- Fullstack / plan lớn → đọc [docs/flow/flow-dev-fullstack.md](docs/flow/flow-dev-fullstack.md)
+- Tổng quan nhanh → [docs/flow/flow-dev-overview.md](docs/flow/flow-dev-overview.md)
+- Chỉ BE → [docs/flow/flow-dev-backend.md](docs/flow/flow-dev-backend.md)
+- Chỉ FE → [docs/flow/flow-dev-frontend.md](docs/flow/flow-dev-frontend.md)
+
+## Monorepo
+
+```
+taphoaphucson/
+├── .cursor/rules/     ← rules Cursor (*.mdc)
+├── docs/flow/         ← hướng dẫn flow
+├── be/
+└── fe/
+```
+
+- Sửa API: cập nhật `docs/API_CONTRACT.md` → `be/` → `fe/`
+- **Feature:** đọc/cập nhật `docs/features/<name>.md` (rule `feature-docs.mdc`)
+- Commit tách khi được: `feat(be):` / `feat(fe):`
+- Không tạo file `CLAUDE.md` — dùng `.cursor/rules/` và skills trong `.cursor/skills/`

@@ -1,0 +1,12 @@
+---
+description: Schema/DB changes must use MySQL + Flyway; H2 only for tests
+globs: be/**/*,**/db/migration/**/*,**/application*.properties
+alwaysApply: false
+---
+
+# MySQL + Flyway
+
+- Dev / desktop / dữ liệu thật: **MySQL**.
+- Đổi schema → file migration Flyway mới (không sửa migration đã apply trên máy shop nếu đã phát hành).
+- Test: H2 in-memory hoặc DB MySQL **tách** production (không phá `tap_hoa` shop).
+- Sau migration: restart BE để Flyway chạy; JPA `validate` khi dùng mysql profile.

@@ -48,10 +48,11 @@ public class CustomerService {
     /**
      * @param nameOnly true = chỉ khớp tên khách/công ty (dùng gợi ý form ghi nợ).
      *                 false = thêm khớp quan hệ/xưởng (Tổng hợp / danh sách).
+     * @param suggest  true = gợi ý form tạo nợ: gồm cả khách hết nợ / chưa có nợ (không chỉ còn dư).
      */
     @Transactional(readOnly = true)
     public Page<CustomerDto> search(String q, int page, int size, String sort, boolean nameOnly) {
-        return search(q, page, size, sort, nameOnly, false, false);
+        return search(q, page, size, sort, nameOnly, false, false, false);
     }
 
     @Transactional(readOnly = true)
@@ -64,8 +65,28 @@ public class CustomerService {
             boolean filterPersonal,
             boolean filterCompany
     ) {
+        return search(q, page, size, sort, nameOnly, filterPersonal, filterCompany, false);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<CustomerDto> search(
+            String q,
+            int page,
+            int size,
+            String sort,
+            boolean nameOnly,
+            boolean filterPersonal,
+            boolean filterCompany,
+            boolean suggest
+    ) {
         String nq = normalize(q);
         PageRequest pageable = PageRequest.of(page, size);
+        if (suggest) {
+            // Luôn hiện số còn nợ (0 đ nếu đã trả xong) — không dùng tổng đã trả như Thùng rác
+            return customerRepository
+                    .suggestByName(nq, filterPersonal, filterCompany, pageable)
+                    .map(this::toSuggestDto);
+        }
         var pageResult = com.taphoa.debt.debt.AmountSort.isDescending(sort)
                 ? customerRepository.searchByNameOrderByBalanceDesc(
                         nq, nameOnly, filterPersonal, filterCompany, pageable)
@@ -74,21 +95,36 @@ public class CustomerService {
         return pageResult.map(this::toDto);
     }
 
-    /** Khách hết nợ trong thùng rác (còn trong hạn retentionDays). */
+    /**
+     * Khách có khoản đã trả còn trong hạn. Khách vẫn còn nợ khác vẫn hiện ở đây (phần đã trả)
+     * và vẫn ở Tổng hợp (phần còn nợ).
+     */
     @Transactional(readOnly = true)
     public Page<CustomerDto> searchTrash(String q, int page, int size, String sort, int retentionDays) {
         String nq = normalize(q);
         PageRequest pageable = PageRequest.of(page, size);
-        LocalDateTime cutoff = LocalDateTime.now(DebtService.VN_ZONE).minusDays(retentionDays);
+        LocalDateTime cutoff = trashCutoff(retentionDays);
         var pageResult = com.taphoa.debt.debt.AmountSort.isDescending(sort)
                 ? customerRepository.searchTrashOrderByPaidDesc(nq, cutoff, pageable)
                 : customerRepository.searchTrashOrderByPaidAsc(nq, cutoff, pageable);
-        return pageResult.map(this::toTrashDto);
+        return pageResult.map(c -> toTrashDto(c, cutoff));
     }
 
     @Transactional(readOnly = true)
     public CustomerDto get(Long id) {
-        return toDto(find(id));
+        return get(id, false);
+    }
+
+    /**
+     * @param trashView true = balance là tổng đã trả còn trong hạn thùng rác
+     */
+    @Transactional(readOnly = true)
+    public CustomerDto get(Long id, boolean trashView) {
+        Customer customer = find(id);
+        if (trashView) {
+            return toTrashDto(customer, trashCutoff(DebtService.TRASH_RETENTION_DAYS));
+        }
+        return toDto(customer);
     }
 
     @Transactional
@@ -126,9 +162,10 @@ public class CustomerService {
             Integer day,
             int page,
             int size,
-            String sort
+            String sort,
+            Boolean paid
     ) {
-        return debtService.listByCustomer(customerId, year, month, day, page, size, sort);
+        return debtService.listByCustomer(customerId, year, month, day, page, size, sort, paid);
     }
 
     @Transactional
@@ -161,8 +198,8 @@ public class CustomerService {
         );
     }
 
-    /** Trong thùng rác: cột số tiền hiển thị tổng đã trả. */
-    private CustomerDto toTrashDto(Customer customer) {
+    /** Gợi ý form/ô tìm: balance = còn nợ (0 nếu hết nợ / trong thùng rác). */
+    private CustomerDto toSuggestDto(Customer customer) {
         boolean company = debtRepository.existsByCustomerIdAndDebtType(customer.getId(), DebtType.COMPANY);
         return new CustomerDto(
                 customer.getId(),
@@ -170,11 +207,31 @@ public class CustomerService {
                 customer.getParentName(),
                 company,
                 customer.getNote(),
-                debtRepository.sumPaidByCustomer(customer.getId()),
+                debtRepository.sumUnpaidByCustomer(customer.getId()),
                 customer.getCreatedAt(),
                 customer.getUpdatedAt(),
-                true
+                customer.getTrashedAt() != null
         );
+    }
+
+    /** Trong thùng rác: cột số tiền là tổng đã trả còn trong hạn, kể cả khách vẫn còn nợ khác. */
+    private CustomerDto toTrashDto(Customer customer, LocalDateTime cutoff) {
+        boolean company = debtRepository.existsByCustomerIdAndDebtType(customer.getId(), DebtType.COMPANY);
+        return new CustomerDto(
+                customer.getId(),
+                customer.getName(),
+                customer.getParentName(),
+                company,
+                customer.getNote(),
+                debtRepository.sumPaidByCustomerSince(customer.getId(), cutoff),
+                customer.getCreatedAt(),
+                customer.getUpdatedAt(),
+                customer.getTrashedAt() != null
+        );
+    }
+
+    private static LocalDateTime trashCutoff(int retentionDays) {
+        return LocalDateTime.now(DebtService.VN_ZONE).minusDays(retentionDays);
     }
 
     private String normalize(String q) {

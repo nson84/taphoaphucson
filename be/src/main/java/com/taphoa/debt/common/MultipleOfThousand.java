@@ -15,7 +15,7 @@ import jakarta.validation.Payload;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface MultipleOfThousand {
 
-    String message() default "Số tiền phải là số tròn nghìn (ví dụ 1.000, 2.000 — không nhập 1.001)";
+    String message() default "Số tiền của bạn chỉ được dưới dạng 1,000 hoặc 1,500";
 
     Class<?>[] groups() default {};
 

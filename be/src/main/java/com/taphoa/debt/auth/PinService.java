@@ -1,5 +1,6 @@
 package com.taphoa.debt.auth;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -14,10 +15,21 @@ public class PinService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AttemptLimiter attemptLimiter;
 
     public PinService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+        this(userRepository, passwordEncoder, new AttemptLimiter());
+    }
+
+    @Autowired
+    public PinService(
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            AttemptLimiter attemptLimiter
+    ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.attemptLimiter = attemptLimiter;
     }
 
     public void verifyCurrentUserPin(String pin) {
@@ -25,9 +37,13 @@ public class PinService {
             throw new ApiException("Vui lòng nhập mã PIN", HttpStatus.BAD_REQUEST);
         }
         User user = currentUser();
+        String key = "pin:" + user.getUsername();
+        attemptLimiter.checkAllowed(key);
         if (user.getPinHash() == null || !passwordEncoder.matches(pin, user.getPinHash())) {
+            attemptLimiter.recordFailure(key);
             throw new ApiException("Mã PIN không đúng", HttpStatus.FORBIDDEN);
         }
+        attemptLimiter.recordSuccess(key);
     }
 
     @Transactional
@@ -36,9 +52,13 @@ public class PinService {
             throw new ApiException("PIN mới phải gồm 4-8 chữ số", HttpStatus.BAD_REQUEST);
         }
         User user = currentUser();
+        String key = "pin:" + user.getUsername();
+        attemptLimiter.checkAllowed(key);
         if (user.getPinHash() == null || !passwordEncoder.matches(currentPin, user.getPinHash())) {
+            attemptLimiter.recordFailure(key);
             throw new ApiException("PIN hiện tại không đúng", HttpStatus.BAD_REQUEST);
         }
+        attemptLimiter.recordSuccess(key);
         user.setPinHash(passwordEncoder.encode(newPin));
         userRepository.save(user);
     }

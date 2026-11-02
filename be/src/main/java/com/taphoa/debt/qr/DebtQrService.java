@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.taphoa.debt.common.ApiException;
+import com.taphoa.debt.common.MoneyRules;
 import com.taphoa.debt.customer.Customer;
 import com.taphoa.debt.customer.CustomerRepository;
 
@@ -66,9 +67,7 @@ public class DebtQrService {
                 .orElseThrow(() -> new ApiException("Không tìm thấy khách hàng", HttpStatus.NOT_FOUND));
 
         BigDecimal payAmount = amount.setScale(0, RoundingMode.HALF_UP);
-        if (payAmount.remainder(BigDecimal.valueOf(1000)).compareTo(BigDecimal.ZERO) != 0) {
-            throw new ApiException("Số tiền QR phải là bội số của 1.000 đ", HttpStatus.BAD_REQUEST);
-        }
+        MoneyRules.requireDebtAmountShape(payAmount);
 
         // Chỉ 1 QR hiệu lực / khách — mã cũ bị thay thế
         for (DebtQrPayment old : paymentRepository.findByCustomerIdAndStatus(customerId, DebtQrStatus.ACTIVE)) {

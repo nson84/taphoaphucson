@@ -20,6 +20,8 @@ import com.taphoa.debt.customer.Customer;
 import com.taphoa.debt.customer.CustomerMergeService;
 import com.taphoa.debt.customer.CustomerRepository;
 import com.taphoa.debt.debt.DebtRepository;
+import com.taphoa.debt.qr.DebtQrPaymentRepository;
+import com.taphoa.debt.sale.SaleRepository;
 
 @ExtendWith(MockitoExtension.class)
 class CustomerMergeServiceTest {
@@ -28,12 +30,17 @@ class CustomerMergeServiceTest {
     private CustomerRepository customerRepository;
     @Mock
     private DebtRepository debtRepository;
+    @Mock
+    private DebtQrPaymentRepository debtQrPaymentRepository;
+    @Mock
+    private SaleRepository saleRepository;
 
     private CustomerMergeService service;
 
     @BeforeEach
     void setUp() {
-        service = new CustomerMergeService(customerRepository, debtRepository);
+        service = new CustomerMergeService(
+                customerRepository, debtRepository, debtQrPaymentRepository, saleRepository);
     }
 
     @Test

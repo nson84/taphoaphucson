@@ -18,7 +18,7 @@ const COPY = {
     title: 'Không tìm thấy trang',
     desc: 'Đường dẫn không đúng hoặc trang đã bị gỡ. Kiểm tra lại địa chỉ bạn vừa nhập.',
     primary: { to: '/', label: 'Về trang chủ' },
-    secondary: { to: '/debts', label: 'Danh sách nợ' },
+    secondary: { to: '/debts/new', label: 'Tạo nợ' },
   },
   500: {
     title: 'Lỗi máy chủ',

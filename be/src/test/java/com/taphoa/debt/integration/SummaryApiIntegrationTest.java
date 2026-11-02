@@ -79,4 +79,73 @@ class SummaryApiIntegrationTest {
                 .andExpect(jsonPath("$.customerCount").value(1))
                 .andExpect(jsonPath("$.customers[0].name").value("B"));
     }
+
+    @Test
+    void trash_keepsPaidLinesWhileCustomerStillOwes() throws Exception {
+        MvcResult open = mockMvc.perform(post("/api/debts")
+                        .header("Authorization", ApiTestSupport.bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "debtType":"PERSONAL","pickerName":"Người lấy","customerName":"LongPartial",
+                                  "amount":8000,
+                                  "occurredAt":"2026-10-29T09:00:00"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+        long customerId = ApiTestSupport.MAPPER.readTree(open.getResponse().getContentAsString())
+                .get("customerId").asLong();
+
+        MvcResult paidDebt = mockMvc.perform(post("/api/debts")
+                        .header("Authorization", ApiTestSupport.bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "debtType":"PERSONAL","pickerName":"Người lấy","customerName":"LongPartial",
+                                  "amount":2000,
+                                  "occurredAt":"2026-10-28T09:00:00"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+        long paidId = ApiTestSupport.MAPPER.readTree(paidDebt.getResponse().getContentAsString()).get("id").asLong();
+
+        mockMvc.perform(post("/api/debts/{id}/pay", paidId)
+                        .header("Authorization", ApiTestSupport.bearer(token)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/summary").param("q", "LongPartial")
+                        .header("Authorization", ApiTestSupport.bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.customerCount").value(1))
+                .andExpect(jsonPath("$.customers[0].balance").value(8000))
+                .andExpect(jsonPath("$.customers[0].trashed").value(false));
+
+        mockMvc.perform(get("/api/trash").param("q", "LongPartial")
+                        .header("Authorization", ApiTestSupport.bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.customerCount").value(1))
+                .andExpect(jsonPath("$.totalUnpaid").value(2000))
+                .andExpect(jsonPath("$.customers[0].name").value("LongPartial"))
+                .andExpect(jsonPath("$.customers[0].balance").value(2000));
+
+        mockMvc.perform(get("/api/customers/{id}", customerId).param("trashView", "true")
+                        .header("Authorization", ApiTestSupport.bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.balance").value(2000))
+                .andExpect(jsonPath("$.trashed").value(false));
+
+        mockMvc.perform(get("/api/customers/{id}/debts", customerId).param("paid", "true")
+                        .header("Authorization", ApiTestSupport.bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].amount").value(2000));
+
+        mockMvc.perform(get("/api/customers/{id}/debts", customerId).param("paid", "false")
+                        .header("Authorization", ApiTestSupport.bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].amount").value(8000));
+    }
 }

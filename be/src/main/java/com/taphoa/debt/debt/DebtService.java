@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.taphoa.debt.auth.PinService;
 import com.taphoa.debt.common.ApiException;
+import com.taphoa.debt.common.MoneyRules;
 import com.taphoa.debt.customer.Customer;
 import com.taphoa.debt.customer.CustomerMergeService;
 import com.taphoa.debt.customer.CustomerNameNormalizer;
@@ -28,6 +29,9 @@ import com.taphoa.debt.qr.DebtQrService;
 public class DebtService {
 
     public static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+
+    /** Số ngày giữ khoản đã trả trong thùng rác trước khi xóa phiếu. */
+    public static final int TRASH_RETENTION_DAYS = 60;
 
     private static final DateTimeFormatter PARTIAL_NOTE_TIME =
             DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
@@ -68,6 +72,23 @@ public class DebtService {
             int size,
             String sort
     ) {
+        return listByCustomer(customerId, year, month, day, page, size, sort, null);
+    }
+
+    /**
+     * @param paid null = tất cả; false = còn nợ (Tổng hợp); true = hết nợ (Thùng rác)
+     */
+    @Transactional(readOnly = true)
+    public Page<DebtDto> listByCustomer(
+            Long customerId,
+            Integer year,
+            Integer month,
+            Integer day,
+            int page,
+            int size,
+            String sort,
+            Boolean paid
+    ) {
         if (!customerRepository.existsById(customerId)) {
             throw new ApiException("Không tìm thấy khách hàng", HttpStatus.NOT_FOUND);
         }
@@ -88,8 +109,12 @@ public class DebtService {
                 to = LocalDate.of(year + 1, 1, 1).atStartOfDay();
             }
         }
+        LocalDateTime paidSince = Boolean.TRUE.equals(paid)
+                ? LocalDateTime.now(VN_ZONE).minusDays(TRASH_RETENTION_DAYS)
+                : null;
         return debtRepository
-                .findByCustomerAndRange(customerId, from, to, AmountSort.debtPageable(page, size, sort))
+                .findByCustomerAndRange(
+                        customerId, from, to, paid, paidSince, AmountSort.debtPageable(page, size, sort))
                 .map(DebtMapper::toDto);
     }
 
@@ -115,6 +140,66 @@ public class DebtService {
         Debt saved = debtRepository.save(debt);
         syncCustomerTrashState(customer.getId());
         return DebtMapper.toDto(saved);
+    }
+
+    /**
+     * Tạo nợ từ hóa đơn POS (gắn {@code saleId}). Caller đã validate số tiền (bội 1.000…).
+     */
+    @Transactional
+    public DebtDto createForSale(
+            DebtType debtType,
+            String customerName,
+            String parentName,
+            String pickerName,
+            BigDecimal amount,
+            String productNote,
+            LocalDateTime occurredAt,
+            Long saleId
+    ) {
+        DebtType type = debtType != null ? debtType : DebtType.PERSONAL;
+        Customer customer = resolveCustomer(type, customerName, parentName, null);
+        Debt debt = new Debt();
+        debt.setCustomer(customer);
+        debt.setDebtType(type);
+        debt.setAmount(amount);
+        debt.setProductNote(trimToNull(productNote));
+        debt.setCustomerNote(null);
+        String picker = trimToNull(pickerName);
+        debt.setPickerName(picker != null ? picker : customer.getName());
+        debt.setOccurredAt(occurredAt != null ? occurredAt : LocalDateTime.now(VN_ZONE));
+        debt.setPaid(false);
+        debt.setSaleId(saleId);
+        Debt saved = debtRepository.save(debt);
+        syncCustomerTrashState(customer.getId());
+        return DebtMapper.toDto(saved);
+    }
+
+    /**
+     * Hủy hóa đơn: xóa khoản nợ gắn hóa đơn nếu chưa ai trả.
+     *
+     * @param expectedAmount số nợ lúc lập hóa đơn; nếu khoản nợ đã bị trừ một phần (số hiện tại khác)
+     *                       thì từ chối để không mất dấu tiền đã thu
+     */
+    @Transactional
+    public void deleteUnpaidBySaleId(Long saleId, BigDecimal expectedAmount) {
+        debtRepository.findBySaleId(saleId).ifPresent(debt -> {
+            if (debt.isPaid()) {
+                throw new ApiException("Không thể hủy hóa đơn: khoản nợ đã trả", HttpStatus.BAD_REQUEST);
+            }
+            if (expectedAmount != null && debt.getAmount().compareTo(expectedAmount) != 0) {
+                throw new ApiException(
+                        "Không thể hủy hóa đơn: khoản nợ đã được trả một phần",
+                        HttpStatus.BAD_REQUEST);
+            }
+            Long customerId = debt.getCustomer().getId();
+            debtRepository.delete(debt);
+            syncCustomerTrashState(customerId);
+        });
+    }
+
+    @Transactional(readOnly = true)
+    public Long findDebtIdBySaleId(Long saleId) {
+        return debtRepository.findBySaleId(saleId).map(Debt::getId).orElse(null);
     }
 
     @Transactional
@@ -157,6 +242,12 @@ public class DebtService {
     @Transactional
     public void delete(Long id) {
         Debt debt = findDebt(id);
+        if (debt.getSaleId() != null) {
+            // Xóa riêng khoản nợ sẽ để hóa đơn còn nợ mà không có khoản nợ nào; phải hủy cả hóa đơn.
+            throw new ApiException(
+                    "Khoản nợ này thuộc một hóa đơn bán hàng. Hãy hủy hóa đơn thay vì xóa khoản nợ.",
+                    HttpStatus.BAD_REQUEST);
+        }
         Long customerId = debt.getCustomer().getId();
         debtRepository.delete(debt);
         syncCustomerTrashState(customerId);
@@ -187,9 +278,7 @@ public class DebtService {
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new ApiException("Số tiền trả phải lớn hơn 0", HttpStatus.BAD_REQUEST);
         }
-        if (amount.remainder(BigDecimal.valueOf(1000)).compareTo(BigDecimal.ZERO) != 0) {
-            throw new ApiException("Số tiền trả phải là bội số của 1.000 đ", HttpStatus.BAD_REQUEST);
-        }
+        MoneyRules.requireDebtAmountShape(amount);
 
         Long customerId = debt.getCustomer().getId();
         BigDecimal totalUnpaid = debtRepository.sumUnpaidByCustomer(customerId);
@@ -240,9 +329,7 @@ public class DebtService {
             throw new ApiException("Số tiền trả phải lớn hơn 0", HttpStatus.BAD_REQUEST);
         }
         BigDecimal payAmount = amount.setScale(0, RoundingMode.HALF_UP);
-        if (payAmount.remainder(BigDecimal.valueOf(1000)).compareTo(BigDecimal.ZERO) != 0) {
-            throw new ApiException("Số tiền trả phải là bội số của 1.000 đ", HttpStatus.BAD_REQUEST);
-        }
+        MoneyRules.requireDebtAmountShape(payAmount);
         BigDecimal totalUnpaid = debtRepository.sumUnpaidByCustomer(customerId);
         if (payAmount.compareTo(totalUnpaid) > 0) {
             throw new ApiException(

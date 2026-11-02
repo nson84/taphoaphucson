@@ -63,27 +63,12 @@ export function isCompanyRefType(type) {
   return COMPANY_REF_TYPES.some((t) => t.value === type)
 }
 
-/**
- * Ghép loại + tên để lưu DB (cột parent_name).
- * Cá nhân: có thể không chọn chip — chỉ lưu note (vd. "x4").
- */
-export function encodeParentRef(type, name) {
-  const n = (name || '').trim()
-  if (!type) return n
-  const meta = parentRefMeta(type)
-  if (type === 'COMPANY_OWNER' || type === 'COMPANY_STAFF') {
-    return n ? `${meta.prefix}${n}` : meta.label
-  }
-  const prefix = meta.prefix
-  if (!n) return prefix.replace(/:\s*$/, '') + ':'
-  return `${prefix}${n}`
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/**
- * Tách chuỗi đã lưu → { type, name }.
- * Không có tiền tố loại → type '' (chỉ note).
- */
-export function parseParentRef(stored) {
+/** Một lần tách tiền tố loại khỏi chuỗi đã lưu. */
+function parseParentRefOnce(stored) {
   const raw = (stored || '').trim()
   if (!raw) return { type: '', name: '' }
 
@@ -123,8 +108,83 @@ export function parseParentRef(stored) {
   return { type: '', name: raw }
 }
 
-function escapeRegExp(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/**
+ * Tách chuỗi đã lưu → { type, name }, bỏ hết tiền tố lặp
+ * (vd. "Xưởng: Xưởng: Kính" → WORKPLACE + "Kính").
+ */
+export function parseParentRef(stored) {
+  const raw = (stored || '').trim()
+  if (!raw) return { type: '', name: '' }
+
+  let type = ''
+  let name = raw
+  for (let i = 0; i < 8; i++) {
+    const once = parseParentRefOnce(name)
+    if (!once.type) break
+    type = once.type
+    name = once.name
+  }
+
+  if (!type) return { type: '', name: raw }
+  return { type, name }
+}
+
+/**
+ * Bỏ tiền tố loại khỏi ô nhập (tránh lưu thành "Xưởng: Xưởng: …").
+ * Ví dụ người dùng gõ "Xưởng Kính" / "Xưởng: Kính" khi đã chọn chip Xưởng.
+ */
+export function stripParentRefNameInput(type, name) {
+  let n = (name || '').trim()
+  if (!n) return ''
+
+  // Gỡ các tiền tố đã lưu (kể cả lặp)
+  for (let i = 0; i < 8; i++) {
+    const once = parseParentRefOnce(n)
+    if (!once.type) break
+    n = once.name
+  }
+
+  if (!type) return n
+
+  const meta = parentRefMeta(type)
+  const label = (meta.label || '').trim()
+  const short = (meta.short || '').trim()
+  // Gõ "Xưởng Kính" / "xưởng kính" khi đã chọn chip Xưởng
+  if (label) {
+    const reLabel = new RegExp(`^${escapeRegExp(label)}\\s*[:\\-–]?\\s*`, 'i')
+    n = n.replace(reLabel, '').trim()
+  }
+  if (short && short.localeCompare(label, 'vi', { sensitivity: 'accent' }) !== 0) {
+    const reShort = new RegExp(`^${escapeRegExp(short)}\\s*[:\\-–]?\\s*`, 'i')
+    n = n.replace(reShort, '').trim()
+  }
+  return n
+}
+
+/**
+ * Ghép loại + tên để lưu DB (cột parent_name).
+ * Cá nhân: có thể không chọn chip — chỉ lưu note (vd. "x4").
+ * Luôn chuẩn hóa tên trước khi gắn prefix — không nhân đôi "Xưởng:".
+ */
+export function encodeParentRef(type, name) {
+  const n = stripParentRefNameInput(type, name)
+  if (!type) return n
+  const meta = parentRefMeta(type)
+  if (type === 'COMPANY_OWNER' || type === 'COMPANY_STAFF') {
+    return n ? `${meta.prefix}${n}` : meta.label
+  }
+  const prefix = meta.prefix
+  if (!n) return prefix.replace(/:\s*$/, '') + ':'
+  return `${prefix}${n}`
+}
+
+/** Chuẩn hóa chuỗi đã lưu (sửa bản ghi bị nhân đôi tiền tố). */
+export function normalizeParentRefStored(stored) {
+  const raw = (stored || '').trim()
+  if (!raw) return ''
+  const { type, name } = parseParentRef(raw)
+  if (!type) return raw
+  return encodeParentRef(type, name)
 }
 
 export function formatParentRefLabel(stored) {
@@ -153,7 +213,7 @@ export function parentRefPlaceholder(type) {
     case 'COMPANY_STAFF':
       return 'Ghi chú thêm (có thể để trống)'
     case 'WORKPLACE':
-      return 'Ví dụ: Xưởng Hải Hưng (có thể để trống)'
+      return 'Ví dụ: Kính / Hải Hưng (không gõ lại chữ Xưởng)'
     case 'GRANDPARENT':
       return 'Ví dụ: ông Tư / bà Năm (có thể để trống)'
     case 'CO_CHU':

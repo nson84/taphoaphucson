@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { Eye, Plus, Search, X } from 'lucide-react'
 import { api } from '../../shared/api'
 import {
   AMOUNT_SORT_DESC,
@@ -108,28 +109,42 @@ export default function SummaryPage() {
   }
 
   return (
-    <section className="panel">
-      <h1>Tổng hợp công nợ</h1>
-      <p className="muted">
-        Chỉ hiện khách còn nợ. Thêm nợ sẽ cộng vào khách đó. Khách hết nợ chuyển sang Thùng rác (giữ 60 ngày).
-      </p>
+    <section className="panel summary-page">
+      <div className="panel-head summary-page-head">
+        <div>
+          <h1 className="summary-page-title">Danh sách nợ &amp; ghi nợ</h1>
+          <p className="summary-page-sub muted">
+            Danh sách chỉ hiện khoản còn nợ. Ô tìm vẫn gợi ý cả khách hết nợ (=0) để mở lại hồ sơ.
+            Khoản đã trả chuyển sang Thùng rác (giữ 60 ngày), dù khách vẫn còn nợ khác.
+          </p>
+        </div>
+        <div className="panel-actions">
+          <Link className="btn btn-create" to="/debts/new">
+            <Plus size={18} strokeWidth={2.25} aria-hidden />
+            Tạo nợ
+          </Link>
+        </div>
+      </div>
+
       {summary && (
-        <div className="stat-row">
-          <div className="stat">
-            <span>Tổng nợ tất cả khách</span>
-            <strong className={Number(summary.totalUnpaid) > 0 ? 'balance-unpaid' : 'balance-paid'}>
+        <div className="summary-kpi">
+          <div className="summary-kpi-card">
+            <span className="summary-kpi-label">Tổng nợ tất cả khách</span>
+            <strong
+              className={`summary-kpi-value ${Number(summary.totalUnpaid) > 0 ? 'balance-unpaid' : 'balance-paid'}`}
+            >
               {formatMoney(summary.totalUnpaid)}
             </strong>
           </div>
-          <div className="stat">
-            <span>Số lượng khách hàng</span>
-            <strong>{summary.customerCount}</strong>
+          <div className="summary-kpi-card">
+            <span className="summary-kpi-label">Số lượng khách hàng</span>
+            <strong className="summary-kpi-value">{summary.customerCount}</strong>
           </div>
         </div>
       )}
 
-      <form className="summary-search" onSubmit={applySearch} ref={wrapRef}>
-        <div className="summary-search-row">
+      <form className="summary-toolbar" onSubmit={applySearch} ref={wrapRef}>
+        <div className="summary-toolbar-row">
           <div className="summary-search-input-wrap">
             <input
               type="search"
@@ -168,28 +183,35 @@ export default function SummaryPage() {
               </ul>
             )}
           </div>
-          <button type="submit">Tìm kiếm</button>
-          <button type="button" className="btn-cancel" onClick={clearSearch}>
-            Xóa
-          </button>
-          <button
-            type="button"
-            className="ghost amount-sort-btn"
-            onClick={() => {
-              setPage(0)
-              setAmountSort((s) => toggleAmountSort(s))
-            }}
-            title="Đảo chiều sắp xếp theo tổng nợ"
-          >
-            {amountSortLabel(amountSort)}
-          </button>
-          <KindFilterButtons value={kindFilter} onChange={onKindFilterChange} />
+          <div className="summary-toolbar-actions">
+            <button type="submit" className="btn btn-search">
+              <Search size={16} strokeWidth={2.25} aria-hidden />
+              Tìm kiếm
+            </button>
+            <button type="button" className="btn-cancel" onClick={clearSearch}>
+              <X size={16} strokeWidth={2.25} aria-hidden />
+              Xóa
+            </button>
+            <button
+              type="button"
+              className="ghost amount-sort-btn"
+              onClick={() => {
+                setPage(0)
+                setAmountSort((s) => toggleAmountSort(s))
+              }}
+              title="Đảo chiều sắp xếp theo tổng nợ"
+            >
+              {amountSortLabel(amountSort)}
+            </button>
+            <KindFilterButtons value={kindFilter} onChange={onKindFilterChange} />
+          </div>
         </div>
       </form>
 
       {error && <p className="error">{error}</p>}
-      <div className="table-wrap">
-        <table>
+
+      <div className="table-wrap accent-table-wrap summary-table-wrap">
+        <table className="summary-table accent-data-table">
           <thead>
             <tr>
               <th>Khách hàng</th>
@@ -201,23 +223,26 @@ export default function SummaryPage() {
           <tbody>
             {(summary?.customers || []).map((c) => (
               <tr key={c.id} className={Number(c.balance) > 0 ? 'row-unpaid' : 'row-paid'}>
-                <td>{formatCustomerDisplayName(c.name, c.parentName, c.company)}</td>
-                <td>{formatParentRefLabel(c.parentName) || '—'}</td>
-                <td>
+                <td className="summary-td-name">
+                  {formatCustomerDisplayName(c.name, c.parentName, c.company)}
+                </td>
+                <td className="summary-td-ref">{formatParentRefLabel(c.parentName) || '—'}</td>
+                <td className="summary-td-amount">
                   <span className={Number(c.balance) > 0 ? 'balance-unpaid' : 'balance-paid'}>
                     {formatMoney(c.balance)}
                   </span>
                 </td>
-                <td>
-                  <Link className="btn" to={`/customers/${c.id}`}>
+                <td className="summary-td-action">
+                  <Link className="btn btn-info summary-detail-btn" to={`/customers/${c.id}`}>
+                    <Eye size={15} strokeWidth={2} aria-hidden />
                     Chi tiết
                   </Link>
                 </td>
               </tr>
             ))}
             {summary && summary.customers?.length === 0 && (
-              <tr>
-                <td colSpan={4}>Chưa có khách hàng</td>
+              <tr className="summary-empty-row">
+                <td colSpan={4}>Chưa có khách còn nợ</td>
               </tr>
             )}
           </tbody>

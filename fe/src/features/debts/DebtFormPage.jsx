@@ -1,17 +1,15 @@
+import { Building2, User } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import DatePicker from 'react-datepicker'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../../shared/api'
+import { createRequestIdHolder } from '../../shared/requestId'
+import { resolveSaleUnitId } from '../pos/saleUnit'
 import ConfirmDialog from '../../shared/ConfirmDialog'
 import { formatCustomerDisplayName } from '../../shared/customerName'
 import { useToast } from '../../shared/ToastContext'
-import {
-  formatMoney,
-  formatMoneyInput,
-  nowVietnamLocalInput,
-  parseMoneyInput,
-  toApiDateTime,
-} from '../../shared/format'
+import MoneyInput from '../../shared/MoneyInput'
+import { formatMoney, nowVietnamLocalInput, toApiDateTime } from '../../shared/format'
 import { validateDebtAmount } from '../../shared/moneyValidation'
 import {
   acceptValidDateChange,
@@ -22,6 +20,14 @@ import {
   toDateTimeLocal,
 } from '../../shared/viDatePicker'
 import {
+  clearDebtFormDraft,
+  clearPosPendingDebt,
+  isCartChangedSinceDraft,
+  readDebtFormDraft,
+  saveDebtFormDraft,
+  savePosPendingDebt,
+} from '../pos/posDebtDraft'
+import {
   COMPANY_REF_TYPES,
   PARENT_REF_TYPES,
   encodeParentRef,
@@ -30,6 +36,7 @@ import {
   parentRefMeta,
   parentRefNameMaxLength,
   parentRefPlaceholder,
+  stripParentRefNameInput,
 } from '../../shared/parentRef'
 
 const empty = {
@@ -90,8 +97,8 @@ function validateForm(form) {
     errors.amount = money.message
   }
 
-  if (productNote.length > 200) {
-    errors.productNote = 'Ghi chú sản phẩm tối đa 200 ký tự'
+  if (productNote.length > 2000) {
+    errors.productNote = 'Ghi chú sản phẩm tối đa 2000 ký tự'
   }
 
   return errors
@@ -125,6 +132,8 @@ function mapApiErrorToFields(message) {
   if (
     lower.includes('số tiền') ||
     lower.includes('tròn nghìn') ||
+    lower.includes('dưới dạng') ||
+    lower.includes('không thể dưới') ||
     lower.includes('1.000') ||
     lower.includes('10.000.000')
   ) {
@@ -133,22 +142,91 @@ function mapApiErrorToFields(message) {
   return { form: msg }
 }
 
+const POS_STORAGE_KEY = 'taphoa-pos-state-v1'
+
+function clearPosInvoice(invoiceKey) {
+  if (!invoiceKey) return
+  try {
+    const s = JSON.parse(localStorage.getItem(POS_STORAGE_KEY) || 'null')
+    if (!s?.invoices?.length) return
+    let next = s.invoices.filter((i) => i.key !== invoiceKey)
+    if (next.length === 0) {
+      next = [
+        {
+          key: `inv-${Date.now()}`,
+          title: 'Hóa đơn 1',
+          items: [],
+          note: '',
+          customerName: '',
+          customerId: null,
+          discount: 0,
+          paymentMethod: 'CASH',
+          paidInput: '',
+        },
+      ]
+    } else {
+      next = next.map((inv, idx) => ({ ...inv, title: `Hóa đơn ${idx + 1}` }))
+    }
+    const activeKey = next.some((i) => i.key === s.activeKey) ? s.activeKey : next[0].key
+    localStorage.setItem(
+      POS_STORAGE_KEY,
+      JSON.stringify({ invoices: next, activeKey, postSale: null }),
+    )
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Các trường người dùng sửa được — dùng so sánh "đang sửa dở". */
+function debtFormSnapshot(f) {
+  return JSON.stringify([
+    f.debtType,
+    f.customerName,
+    f.parentRefType,
+    f.parentName,
+    f.pickerName,
+    f.amount,
+    f.productNote,
+    f.occurredAt,
+  ])
+}
+
 export default function DebtFormPage() {
   const { id } = useParams()
   const isEdit = Boolean(id)
   const navigate = useNavigate()
+  const location = useLocation()
   const toast = useToast()
+  /** Chỉ luồng bán hàng → GHI NỢ (có state fromPos). Ghi nợ từ menu Tổng hợp không dùng. */
+  const isPosDebtFlow = Boolean(location.state?.fromPos && location.state?.invoiceKey)
+  const posDraft = isPosDebtFlow ? location.state : null
+  const invoiceLeaveLabel = posDraft?.invoiceTitle || 'hóa đơn này'
+
+  useEffect(() => {
+    if (isPosDebtFlow) return
+    clearPosPendingDebt()
+  }, [isPosDebtFlow])
+
   const [form, setForm] = useState(empty)
+  /** Sửa nợ: ảnh chụp form lúc tải xong, để biết đang sửa dở (null = chưa tải xong). */
+  const [editBaseline, setEditBaseline] = useState(null)
+  const [posCartChanged, setPosCartChanged] = useState(false)
   const [paid, setPaid] = useState(false)
   const [fieldErrors, setFieldErrors] = useState({})
   const [loading, setLoading] = useState(false)
+  /** Khóa chống trùng hóa đơn khi bấm lưu lại sau lỗi mạng */
+  const [saleRequestIds] = useState(createRequestIdHolder)
   const [confirmReactivate, setConfirmReactivate] = useState(false)
+  const [confirmLeave, setConfirmLeave] = useState(false)
+  /** 'blocker' | 'backPos' | 'cancelHome' */
+  const [leaveMode, setLeaveMode] = useState(null)
   const occurredRawRef = useRef('')
   const occurredFocusDisplayRef = useRef('')
   const occurredDirtyRef = useRef(false)
   const keepOccurredErrorRef = useRef(false)
   const formRef = useRef(form)
   formRef.current = form
+  const bypassLeaveBlockRef = useRef(false)
   const nameSuggestRef = useRef(null)
   const suggestSeq = useRef(0)
   const [suggestions, setSuggestions] = useState([])
@@ -158,9 +236,150 @@ export default function DebtFormPage() {
   const isCompany = form.debtType === 'COMPANY'
   const typeChosen = Boolean(form.debtType)
 
+  /** Tạo nợ thường: đã nhập gì đó. Sửa nợ: khác dữ liệu đã tải. (Luồng từ POS luôn được bảo vệ.) */
+  const formDirty = isEdit
+    ? editBaseline !== null && debtFormSnapshot(form) !== editBaseline
+    : [form.customerName, form.parentName, form.pickerName, form.amount, form.productNote].some(
+        (v) => String(v ?? '').trim() !== '',
+      )
+
+  const shouldBlockLeave = !paid && (isPosDebtFlow || formDirty)
+
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
+    if (!shouldBlockLeave || bypassLeaveBlockRef.current) return false
+    return (
+      currentLocation.pathname !== nextLocation.pathname ||
+      currentLocation.search !== nextLocation.search
+    )
+  })
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    setLeaveMode('blocker')
+    setConfirmLeave(true)
+  }, [blocker.state])
+
+  useEffect(() => {
+    if (!shouldBlockLeave) return undefined
+    const onBeforeUnload = (e) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [shouldBlockLeave])
+
+  function persistPosDebtDraft() {
+    if (!posDraft?.invoiceKey) return
+    saveDebtFormDraft(posDraft.invoiceKey, formRef.current, posDraft.items)
+    savePosPendingDebt({
+      invoiceKey: posDraft.invoiceKey,
+      invoiceTitle: posDraft.invoiceTitle,
+    })
+  }
+
+  function openLeaveConfirm(mode) {
+    setLeaveMode(mode)
+    setConfirmLeave(true)
+  }
+
+  function stayOnDebtForm() {
+    setConfirmLeave(false)
+    setLeaveMode(null)
+    if (blocker.state === 'blocked') blocker.reset?.()
+  }
+
+  function confirmLeaveDebtForm() {
+    persistPosDebtDraft()
+    const mode = leaveMode
+    setConfirmLeave(false)
+    setLeaveMode(null)
+    if (mode === 'blocker') {
+      blocker.proceed?.()
+      return
+    }
+    bypassLeaveBlockRef.current = true
+    if (mode === 'backPos') {
+      navigate('/pos', {
+        state: {
+          resumeInvoiceKey: posDraft?.invoiceKey,
+          resumeDebtForInvoice: posDraft?.invoiceKey,
+        },
+      })
+      return
+    }
+    if (mode === 'cancelHome') {
+      toast.notify(
+        'Đã thoát form ghi nợ. Vào Bán hàng → GHI NỢ để tiếp tục cùng hóa đơn.',
+        'info',
+      )
+      navigate('/')
+      return
+    }
+  }
+
+  function backToPosInvoice() {
+    if (!posDraft?.invoiceKey) return
+    openLeaveConfirm('backPos')
+  }
+
+  function cancelDebtForm() {
+    if (isPosDebtFlow && posDraft?.invoiceKey) {
+      openLeaveConfirm('cancelHome')
+      return
+    }
+    navigate(-1)
+  }
+
   useEffect(() => {
     if (!isEdit) {
-      setForm({ ...empty, occurredAt: nowVietnamLocalInput() })
+      const base = { ...empty, occurredAt: nowVietnamLocalInput() }
+      if (isPosDebtFlow && posDraft?.invoiceKey) {
+        const saved = readDebtFormDraft(posDraft.invoiceKey)
+        const amountFromPos =
+          posDraft.amount != null ? String(Math.round(Number(posDraft.amount))) : base.amount
+        const noteFromPos =
+          posDraft.productNote != null ? String(posDraft.productNote) : base.productNote
+        if (saved?.debtType) {
+          setForm({
+            ...base,
+            debtType: saved.debtType,
+            customerName: saved.customerName || '',
+            parentRefType: saved.parentRefType || '',
+            parentName: saved.parentName || '',
+            pickerName: saved.pickerName || '',
+            occurredAt: saved.occurredAt || base.occurredAt,
+            amount: amountFromPos,
+            productNote: noteFromPos,
+          })
+        } else {
+          setForm({
+            ...base,
+            amount: amountFromPos,
+            productNote: noteFromPos,
+          })
+        }
+      } else {
+        const pre = location.state?.prefillCustomer
+        if (pre?.name) {
+          const company = Boolean(pre.company)
+          const ref = parseParentRef(pre.parentName || '')
+          setForm({
+            ...base,
+            debtType: company ? 'COMPANY' : 'PERSONAL',
+            customerName: pre.name || '',
+            parentName: pre.parentName || '',
+            parentRefType: company
+              ? isCompanyRefType(ref.type)
+                ? ref.type
+                : 'COMPANY_OWNER'
+              : ref.type || '',
+            pickerName: '',
+          })
+        } else {
+          setForm(base)
+        }
+      }
       setPaid(false)
       setFieldErrors({})
       setSuggestions([])
@@ -169,7 +388,7 @@ export default function DebtFormPage() {
     }
     api(`/api/debts/${id}`)
       .then((d) => {
-        setForm({
+        const loaded = {
           debtType: d.debtType || 'PERSONAL',
           customerName: d.customerName || '',
           ...(() => {
@@ -189,13 +408,35 @@ export default function DebtFormPage() {
           amount: d.amount != null ? String(Math.round(Number(d.amount))) : '',
           productNote: d.productNote || '',
           occurredAt: d.occurredAt ? d.occurredAt.slice(0, 16) : nowVietnamLocalInput(),
-        })
+        }
+        setForm(loaded)
+        setEditBaseline(debtFormSnapshot(loaded))
         setPaid(Boolean(d.paid))
         setFieldErrors({})
         setShowSuggest(false)
       })
       .catch((e) => setFieldErrors({ form: e.message }))
-  }, [id, isEdit])
+  }, [id, isEdit, isPosDebtFlow, posDraft?.invoiceKey, posDraft?.amount, posDraft?.productNote])
+
+  useEffect(() => {
+    if (!isPosDebtFlow || !posDraft?.invoiceKey) {
+      setPosCartChanged(false)
+      return
+    }
+    setPosCartChanged(isCartChangedSinceDraft(posDraft.invoiceKey, posDraft.items))
+  }, [isPosDebtFlow, posDraft?.invoiceKey, posDraft?.items])
+
+  useEffect(() => {
+    if (!isPosDebtFlow || !posDraft?.invoiceKey || paid) return
+    const t = setTimeout(() => {
+      saveDebtFormDraft(posDraft.invoiceKey, formRef.current, posDraft.items)
+      savePosPendingDebt({
+        invoiceKey: posDraft.invoiceKey,
+        invoiceTitle: posDraft.invoiceTitle,
+      })
+    }, 700)
+    return () => clearTimeout(t)
+  }, [form, isPosDebtFlow, paid, posDraft?.invoiceKey, posDraft?.invoiceTitle, posDraft?.items])
 
   useEffect(() => {
     if (paid || !typeChosen) {
@@ -213,13 +454,17 @@ export default function DebtFormPage() {
     const seq = ++suggestSeq.current
     setSuggestLoading(true)
     const t = setTimeout(() => {
-      // nameOnly: tránh "Nhà" khớp nhầm "Nhân viên công ty" (bỏ dấu nha ⊂ nhan)
-      api(`/api/customers?q=${encodeURIComponent(q)}&page=0&size=8&nameOnly=true`)
+      // suggest=true: gồm cả khách hết nợ / chưa từng nợ (không chỉ còn dư như Tổng hợp)
+      // nameOnly: tránh "Nhà" khớp nhầm quan hệ/xưởng
+      api(
+        `/api/customers?q=${encodeURIComponent(q)}&page=0&size=8&nameOnly=true&suggest=true`,
+        { inlineErrors: true },
+      )
         .then((res) => {
           if (seq !== suggestSeq.current) return
-          let list = res.content || []
-          if (isCompany) list = list.filter((c) => c.company)
-          else list = list.filter((c) => !c.company)
+          const list = res.content || []
+          // Không lọc cứng theo c.company — cờ này chỉ true khi đã từng có nợ công ty,
+          // lọc sẽ làm mất gợi ý khi tạo khoản mới / khách cá nhân.
           setSuggestions(list)
           // Khi sửa: không tự xổ gợi ý (tránh chọn nhầm khách khác → mất vai trò Bác/…)
           if (!isEdit) setShowSuggest(true)
@@ -233,7 +478,7 @@ export default function DebtFormPage() {
         })
     }, 200)
     return () => clearTimeout(t)
-  }, [form.customerName, paid, typeChosen, isCompany, isEdit])
+  }, [form.customerName, paid, typeChosen, isEdit])
 
   useEffect(() => {
     function onDocClick(e) {
@@ -260,15 +505,18 @@ export default function DebtFormPage() {
     const ref = parseParentRef(customer.parentName || '')
     setForm((prev) => {
       const company = prev.debtType === 'COMPANY'
+      const parentRefType = company
+        ? isCompanyRefType(ref.type)
+          ? ref.type
+          : 'COMPANY_OWNER'
+        : ref.type
+      const rawName = company && !isCompanyRefType(ref.type) ? '' : ref.name
       return {
         ...prev,
         customerName: customer.name || '',
-        parentRefType: company
-          ? isCompanyRefType(ref.type)
-            ? ref.type
-            : 'COMPANY_OWNER'
-          : ref.type,
-        parentName: company && !isCompanyRefType(ref.type) ? '' : ref.name,
+        parentRefType,
+        // Bỏ tiền tố lặp "Xưởng: Xưởng: …" khi đổ vào ô nhập
+        parentName: stripParentRefNameInput(parentRefType, rawName),
       }
     })
     setShowSuggest(false)
@@ -289,13 +537,14 @@ export default function DebtFormPage() {
       parentRefType: debtType === 'COMPANY' ? 'COMPANY_OWNER' : '',
       parentName: '',
       occurredAt: prev.occurredAt || nowVietnamLocalInput(),
+      // Autofill từ hóa đơn POS (cá nhân / công ty giống nhau)
+      amount:
+        posDraft?.amount != null
+          ? String(Math.round(Number(posDraft.amount)))
+          : prev.amount,
+      productNote: posDraft?.productNote != null ? posDraft.productNote : prev.productNote,
     }))
     setFieldErrors({})
-  }
-
-  function onAmountChange(e) {
-    // Tối đa 10.000.000 đ → 8 chữ số
-    update('amount', parseMoneyInput(e.target.value).slice(0, 8))
   }
 
   function setOccurredAt(value, { clearError = true } = {}) {
@@ -370,29 +619,81 @@ export default function DebtFormPage() {
     if (Object.keys(errors).length > 0) return
 
     setLoading(true)
+    const parentName = encodeParentRef(
+      form.debtType === 'COMPANY'
+        ? form.parentRefType || 'COMPANY_OWNER'
+        : form.parentRefType || '',
+      form.parentName,
+    )
+    const productNote = form.productNote.trim()
     const payload = {
       debtType: form.debtType,
       customerName: form.customerName.trim(),
-      parentName: encodeParentRef(
-        form.debtType === 'COMPANY'
-          ? form.parentRefType || 'COMPANY_OWNER'
-          : form.parentRefType || '',
-        form.parentName,
-      ),
+      parentName,
       pickerName: form.pickerName.trim(),
       amount: Number(form.amount),
-      productNote: form.productNote.trim(),
+      productNote,
       occurredAt: toApiDateTime(form.occurredAt),
     }
     try {
       if (isEdit) {
-        await api(`/api/debts/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+        const updated = await api(`/api/debts/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        })
         toast.success('Đã lưu thay đổi khoản nợ')
+        bypassLeaveBlockRef.current = true
+        navigate(updated?.customerId ? `/customers/${updated.customerId}` : '/')
+      } else if (posDraft?.items?.length) {
+        // unitId trên giỏ POS có thể cũ sau khi sửa hàng — khớp lại đơn vị hiện tại; không khớp thì báo lỗi
+        // (không tự hạ về đơn vị cơ bản — sẽ sai giá và sai tồn).
+        const saleItems = await Promise.all(
+          posDraft.items.map(async (it) => {
+            const productId = it.productId
+            const qty = Number(it.qty) || 1
+            const unitPrice = it.unitPrice
+            const p = await api(`/api/products/${productId}`, { inlineErrors: true })
+            const productUnitId = resolveSaleUnitId(p, {
+              unitId: it.productUnitId,
+              unitName: it.unitName,
+              unitFactor: it.unitFactor,
+              name: it.name,
+            })
+            return { productId, qty, productUnitId, unitPrice }
+          }),
+        )
+        const salePayload = {
+          items: saleItems,
+          paymentMethod: 'DEBT',
+          paidAmount: 0,
+          discountAmount: Number(posDraft.discount) || 0,
+          debtType: form.debtType,
+          customerName: payload.customerName,
+          parentName: payload.parentName,
+          pickerName: payload.pickerName,
+          note: posDraft.note || null,
+          productNote,
+          occurredAt: payload.occurredAt,
+        }
+        await api('/api/sales', {
+          method: 'POST',
+          inlineErrors: true,
+          body: JSON.stringify({ ...salePayload, clientRequestId: saleRequestIds.idFor(salePayload) }),
+        })
+        saleRequestIds.reset()
+        clearPosInvoice(posDraft.invoiceKey)
+        clearDebtFormDraft(posDraft.invoiceKey)
+        clearPosPendingDebt()
+        toast.success('Đã ghi nợ hóa đơn')
+        bypassLeaveBlockRef.current = true
+        navigate('/pos')
       } else {
-        await api('/api/debts', { method: 'POST', body: JSON.stringify(payload) })
+        const created = await api('/api/debts', { method: 'POST', body: JSON.stringify(payload) })
         toast.success('Tạo khoản nợ thành công')
+        bypassLeaveBlockRef.current = true
+        // Về trang chi tiết khách (không về Tổng hợp)
+        navigate(created?.customerId ? `/customers/${created.customerId}` : '/')
       }
-      navigate('/debts')
     } catch (err) {
       const mapped = mapApiErrorToFields(err.message)
       setFieldErrors(mapped)
@@ -422,9 +723,15 @@ export default function DebtFormPage() {
   return (
     <section className="panel form-page">
       <div className="form-page-head">
-        <Link className="form-back" to="/debts">
-          ← Quay lại danh sách
-        </Link>
+        {isPosDebtFlow ? (
+          <button type="button" className="form-back" onClick={backToPosInvoice}>
+            ← Quay lại hóa đơn
+          </button>
+        ) : (
+          <Link className="form-back" to="/">
+            ← Quay lại danh sách nợ &amp; ghi nợ
+          </Link>
+        )}
         <div className="form-page-title-row">
           <h1>{isEdit ? 'Sửa khoản nợ' : 'Tạo khoản nợ'}</h1>
           {isEdit && (
@@ -436,13 +743,27 @@ export default function DebtFormPage() {
         <p className="form-page-lead">
           {paid
             ? 'Khoản này đã hết nợ. Muốn sửa lại thì bấm “Mở lại còn nợ” bên dưới.'
-            : typeChosen
-              ? isCompany
-                ? 'Ghi nợ công ty — điền tên công ty, người lấy hàng và số tiền.'
-                : 'Ghi nợ cá nhân — điền tên khách, người lấy hộ và số tiền.'
-              : 'Chọn loại ghi nợ trước khi điền thông tin.'}
+            : isPosDebtFlow && posDraft?.invoiceTitle
+              ? posDraft.resumeDebtForm
+                ? `Tiếp tục ghi nợ ${posDraft.invoiceTitle} — giỏ hàng và số tiền đã cập nhật theo hóa đơn trên quầy.`
+                : `Ghi nợ từ ${posDraft.invoiceTitle} trên quầy bán hàng.`
+              : typeChosen
+                ? isCompany
+                  ? 'Ghi nợ công ty — điền tên công ty, người lấy hàng và số tiền.'
+                  : 'Ghi nợ cá nhân — điền tên khách, người lấy hộ và số tiền.'
+                : 'Chọn loại ghi nợ trước khi điền thông tin.'}
         </p>
       </div>
+
+      {isPosDebtFlow && posCartChanged && !paid && (
+        <div className="notice" role="status">
+          <p className="notice-title">Giỏ hàng đã thay đổi</p>
+          <p>
+            Số tiền và ghi chú hàng đã được cập nhật theo hóa đơn trên quầy. Vui lòng kiểm tra lại
+            trước khi lưu.
+          </p>
+        </div>
+      )}
 
       {paid && (
         <div className="notice notice-paid">
@@ -473,15 +794,40 @@ export default function DebtFormPage() {
         onConfirm={reactivate}
       />
 
+      <ConfirmDialog
+        open={confirmLeave}
+        title={
+          isPosDebtFlow ? 'Thoát ghi nợ?' : isEdit ? 'Thoát khi đang sửa khoản nợ?' : 'Thoát khi đang tạo khoản nợ?'
+        }
+        message={
+          isPosDebtFlow
+            ? `Bạn có chắc muốn thoát khỏi phần ghi nợ cho ${invoiceLeaveLabel} không? Phần đã nhập sẽ được giữ để tiếp tục sau.`
+            : isEdit
+              ? 'Bạn đang sửa dở khoản nợ này. Nếu thoát, các thay đổi chưa lưu sẽ mất. Bạn có muốn thoát không?'
+              : 'Bạn đang tạo dở khoản nợ mới. Nếu thoát, thông tin đã nhập sẽ mất. Bạn có muốn thoát không?'
+        }
+        confirmLabel="Thoát"
+        cancelLabel={isPosDebtFlow ? 'Ở lại' : isEdit ? 'Ở lại tiếp tục sửa' : 'Ở lại tiếp tục tạo'}
+        danger
+        onClose={stayOnDebtForm}
+        onConfirm={confirmLeaveDebtForm}
+      />
+
       {!typeChosen && !isEdit ? (
         <div className="debt-type-chooser">
           <button type="button" className="debt-type-card type-personal" onClick={() => chooseType('PERSONAL')}>
+            <span className="debt-type-card-icon" aria-hidden>
+              <User size={40} strokeWidth={1.75} />
+            </span>
             <span className="debt-type-card-title">Cá nhân</span>
             <span className="debt-type-card-desc">
               Ghi nợ cho khách cá nhân — có tên người lấy hộ (con mua hộ mẹ, cháu mua hộ bà…).
             </span>
           </button>
           <button type="button" className="debt-type-card type-company" onClick={() => chooseType('COMPANY')}>
+            <span className="debt-type-card-icon" aria-hidden>
+              <Building2 size={40} strokeWidth={1.75} />
+            </span>
             <span className="debt-type-card-title">Công ty</span>
             <span className="debt-type-card-desc">
               Ghi nợ cho công ty — có tên người lấy hàng.
@@ -544,7 +890,9 @@ export default function DebtFormPage() {
                     value={form.customerName}
                     onChange={(e) => update('customerName', e.target.value)}
                     onFocus={() => {
-                      if (suggestions.length > 0) setShowSuggest(true)
+                      if (suggestions.length > 0 || form.customerName.trim().length >= 1) {
+                        setShowSuggest(true)
+                      }
                     }}
                     placeholder={isCompany ? 'Ví dụ: Công ty ABC' : 'Ví dụ: Nguyễn Văn An'}
                     autoComplete="off"
@@ -612,8 +960,15 @@ export default function DebtFormPage() {
                           disabled={paid}
                           onClick={() => {
                             // Cá nhân: bấm lại chip đang chọn → bỏ chọn (chỉ còn note)
-                            if (!isCompany && selected) update('parentRefType', '')
-                            else update('parentRefType', t.value)
+                            if (!isCompany && selected) {
+                              update('parentRefType', '')
+                              return
+                            }
+                            setForm((prev) => ({
+                              ...prev,
+                              parentRefType: t.value,
+                              parentName: stripParentRefNameInput(t.value, prev.parentName),
+                            }))
                           }}
                         >
                           {t.label}
@@ -628,6 +983,13 @@ export default function DebtFormPage() {
                       maxLength={parentRefNameMaxLength(form.parentRefType || '')}
                       value={form.parentName}
                       onChange={(e) => update('parentName', e.target.value)}
+                      onBlur={() => {
+                        const cleaned = stripParentRefNameInput(
+                          form.parentRefType || '',
+                          form.parentName,
+                        )
+                        if (cleaned !== form.parentName) update('parentName', cleaned)
+                      }}
                       placeholder={parentRefPlaceholder(form.parentRefType || '')}
                       aria-invalid={Boolean(fieldErrors.parentName)}
                     />
@@ -731,17 +1093,16 @@ export default function DebtFormPage() {
                 <span className="field-label">
                   Số tiền nợ <span className="req">*</span>
                 </span>
-                <input
-                  type="text"
-                  inputMode="numeric"
+                <MoneyInput
                   disabled={paid}
-                  value={formatMoneyInput(form.amount)}
-                  onChange={onAmountChange}
-                  placeholder="Ví dụ: 50,000"
+                  value={form.amount}
+                  // Tối đa 10.000.000 đ → 8 chữ số
+                  maxDigits={8}
+                  onValueChange={(digits) => update('amount', digits)}
+                  placeholder="Ví dụ: 50,000 đ"
                   className={`amount-input${fieldErrors.amount ? ' input-invalid' : ''}`}
                   aria-invalid={Boolean(fieldErrors.amount)}
                 />
-                {form.amount ? <span className="amount-preview">{formatMoney(form.amount)}</span> : null}
                 {fieldErrors.amount && (
                   <span className="field-error" role="alert">
                     {fieldErrors.amount}
@@ -751,20 +1112,21 @@ export default function DebtFormPage() {
               <label className={`field full${fieldErrors.productNote ? ' field-invalid' : ''}`}>
                 <span className="field-label">Ghi chú sản phẩm</span>
                 <textarea
-                  rows={3}
+                  rows={Math.min(8, Math.max(3, (form.productNote || '').split('\n').length + 1))}
                   disabled={paid}
-                  maxLength={200}
+                  maxLength={2000}
                   value={form.productNote}
                   onChange={(e) => update('productNote', e.target.value)}
-                  placeholder="Ví dụ: 2 kg gạo, 1 thùng mì"
+                  placeholder={"Ví dụ:\n-kẹo x1\n-bánh quy x2"}
                   aria-invalid={Boolean(fieldErrors.productNote)}
+                  style={{ whiteSpace: 'pre-wrap' }}
                 />
                 {fieldErrors.productNote ? (
                   <span className="field-error" role="alert">
                     {fieldErrors.productNote}
                   </span>
                 ) : (
-                  <span className="field-hint">{form.productNote.length}/200 ký tự</span>
+                  <span className="field-hint">{form.productNote.length}/2000 ký tự</span>
                 )}
               </label>
             </div>
@@ -777,11 +1139,22 @@ export default function DebtFormPage() {
           )}
 
           <div className="form-actions">
-            <button type="button" className="btn-cancel btn-lg" onClick={() => navigate(-1)}>
+            {isPosDebtFlow && (
+              <button type="button" className="ghost btn-lg" onClick={backToPosInvoice}>
+                Quay lại hóa đơn
+              </button>
+            )}
+            <button type="button" className="btn-cancel btn-lg" onClick={cancelDebtForm}>
               Hủy
             </button>
             <button type="submit" className="btn-lg" disabled={loading || paid}>
-              {loading ? 'Đang lưu…' : isEdit ? 'Lưu thay đổi' : 'Tạo khoản nợ'}
+              {loading
+                ? 'Đang lưu…'
+                : isEdit
+                  ? 'Lưu thay đổi'
+                  : isPosDebtFlow
+                    ? 'Ghi nợ hóa đơn'
+                    : 'Tạo khoản nợ'}
             </button>
           </div>
         </form>

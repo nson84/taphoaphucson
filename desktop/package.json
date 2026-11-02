@@ -34,6 +34,14 @@
       {
         "from": "build/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "resources/splash",
+        "to": "splash"
+      },
+      {
+        "from": "resources/sounds",
+        "to": "sounds"
       }
     ],
     "win": {

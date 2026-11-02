@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { Eye, Search, X } from 'lucide-react'
 import { api } from '../../shared/api'
 import {
   AMOUNT_SORT_DESC,
@@ -96,12 +97,13 @@ export default function TrashPage() {
   return (
     <section className="panel">
       <Link className="form-back" to="/">
-        ← Quay lại tổng hợp
+        ← Quay lại danh sách nợ &amp; ghi nợ
       </Link>
       <h1>Thùng rác</h1>
       <p className="muted">
-        Khách đã hết nợ được chuyển vào đây và xem lại trong 60 ngày. Quá hạn hệ thống chỉ xóa các
-        khoản nợ; thông tin khách hàng vẫn được giữ.
+        Khoản đã trả được giữ ở đây 60 ngày, kể cả khi khách vẫn còn khoản khác — phần còn nợ nằm ở
+        danh sách nợ &amp; ghi nợ. Quá hạn hệ thống chỉ xóa các khoản đã trả; thông tin khách hàng vẫn
+        được giữ.
       </p>
       {summary && (
         <div className="stat-row">
@@ -152,8 +154,12 @@ export default function TrashPage() {
               </ul>
             )}
           </div>
-          <button type="submit">Tìm kiếm</button>
+          <button type="submit" className="btn btn-search">
+            <Search size={16} strokeWidth={2.25} aria-hidden />
+            Tìm kiếm
+          </button>
           <button type="button" className="btn-cancel" onClick={clearSearch}>
+            <X size={16} strokeWidth={2.25} aria-hidden />
             Xóa
           </button>
           <button
@@ -190,7 +196,8 @@ export default function TrashPage() {
                   <span className="balance-paid">{formatMoney(c.balance)}</span>
                 </td>
                 <td>
-                  <Link className="btn" to={`/customers/${c.id}?from=trash`}>
+                  <Link className="btn btn-info" to={`/customers/${c.id}?from=trash`}>
+                    <Eye size={15} strokeWidth={2} aria-hidden />
                     Chi tiết
                   </Link>
                 </td>

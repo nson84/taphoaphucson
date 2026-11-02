@@ -32,7 +32,7 @@ public class DebtController {
             @RequestParam(required = false) DebtType debtType,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = AmountSort.DESC) String sort
+            @RequestParam(defaultValue = AmountSort.DATE_DESC) String sort
     ) {
         return PageResponse.from(debtService.search(q, debtType, page, size, sort));
     }

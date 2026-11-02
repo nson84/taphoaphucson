@@ -1,0 +1,53 @@
+---
+description: Mỗi feature phải có docs/features/<name>.md — đọc trước, cập nhật sau khi làm
+alwaysApply: true
+---
+
+# Feature docs (bắt buộc)
+
+## File theo dõi
+
+Mỗi nghiệp vụ có **một** file: `docs/features/<name>.md`  
+(Template: `docs/features/_TEMPLATE.md`)
+
+Index tiến độ: `docs/PROGRESS.md` · Routes: `docs/PAGES.md` · API: `docs/API_CONTRACT.md` · Quyết định: `docs/DECISION_LOG.md`
+
+## Trước khi sửa / thêm feature
+
+0. Đọc [docs/DESKTOP_APP_REQUIREMENTS.md](../../docs/DESKTOP_APP_REQUIREMENTS.md) — app PC Electron, 1 máy quầy.
+1. Đọc `docs/features/<name>.md` (và PROGRESS) — nắm **Đã có / Chưa có**.
+2. Feature mới: copy `_TEMPLATE.md` → `docs/features/<name>.md`, thêm dòng vào PROGRESS + PAGES/API nếu cần.
+3. Làm đúng phạm vi đã ghi; không làm lại phần đã ✅ trừ khi user yêu cầu đổi.
+
+## Sau khi xong (cùng session)
+
+1. Cập nhật checklist **Đã có / Chưa có** trong `docs/features/<name>.md`.
+2. Đổi route → `PAGES.md`. Đổi API → `API_CONTRACT.md`.
+3. Quyết định kiến trúc/UX quan trọng → `DECISION_LOG.md`.
+4. Cập nhật cột trạng thái trong `PROGRESS.md`.
+
+## Khi bỏ / xóa feature (hoặc một phần feature)
+
+- Xóa **cả BE và FE** (xem rule `flow-dev.mdc` § Bỏ / xóa phần).
+- Ghi rõ trong `docs/features/<name>.md` (mục Đã có → bỏ checklist / chuyển Chưa có hoặc xóa file nếu bỏ hẳn feature).
+- Gỡ khỏi `PAGES.md` / `API_CONTRACT.md` / `PROGRESS.md`; quyết định bỏ hẳn → `DECISION_LOG.md`.
+
+## Map nhanh (Phúc Sơn)
+
+| Làm việc với | Đọc file |
+|:---|:---|
+| Login, PIN, logout | `docs/features/auth.md` |
+| Tổng hợp `/` | `docs/features/summary.md` |
+| Form nợ `/debts/*` | `docs/features/debts.md` |
+| Khách / chi tiết nợ | `docs/features/customers.md` |
+| Thùng rác | `docs/features/trash.md` |
+| Cài đặt, backup thoát app | `docs/features/settings.md` |
+| Mua thẻ | `docs/features/cards.md` |
+| QR / VTCPay | `docs/features/payments-qr.md` |
+| Trang lỗi / api 401 | `docs/features/error.md` |
+| Hàng hóa | `docs/features/products.md` |
+| POS / lịch sử bán / báo cáo | `docs/features/sales.md` |
+
+Quy trình tổng (đọc docs + test + DevTools): [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md)
+
+Không bỏ qua bước cập nhật docs khi “chỉ sửa nhỏ” nếu thay đổi hành vi hoặc API.

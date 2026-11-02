@@ -1,0 +1,13 @@
+---
+description: Do not claim done until build/tests or UI check prove it works
+alwaysApply: true
+---
+
+# Runnable before done
+
+Không báo “xong” chỉ vì đã sửa file.
+
+- Có thay đổi FE → build (và lint nếu có) hoặc kiểm tra UI thật.
+- Có thay đổi BE/API → compile/test liên quan.
+- Có thay đổi desktop splash/backup/quit/print → rebuild hoặc chạy bản Electron.
+- Nêu rõ đã kiểm tra gì (ngắn); không bịa kết quả test.

@@ -180,7 +180,7 @@ class DebtApiIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("tròn nghìn")));
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("1,500")));
     }
 
     private long createDebt(String name, int amount) throws Exception {

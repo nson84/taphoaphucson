@@ -20,6 +20,8 @@ export function customerSuggestUrl(q, kindFilter, size = 8) {
     page: '0',
     size: String(size),
     nameOnly: 'true',
+    // gồm khách hết nợ (=0, kể cả thùng rác) — ghi nợ lại / mở hồ sơ
+    suggest: 'true',
   })
   appendKindFilterQueryParams(params, kindFilter)
   return `/api/customers?${params}`

@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -43,8 +44,13 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, authException) ->
+                                SecurityJsonResponse.writeUnauthorized(response))
+                        .accessDeniedHandler((request, response, accessDeniedException) ->
+                                SecurityJsonResponse.writeAccessDenied(response)))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/login").permitAll()
+                        .requestMatchers("/api/auth/login", "/api/auth/logout").permitAll()
                         .requestMatchers("/api/payments/vtcpay/ipn").permitAll()
                         .requestMatchers("/api/payments/vtcpay/return").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
@@ -55,6 +61,8 @@ public class SecurityConfig {
                                 "/assets/**",
                                 "/favicon.svg",
                                 "/favicon.ico",
+                                "/favicon.png",
+                                "/login-bg.jpg",
                                 "/icons.svg",
                                 "/login",
                                 "/debts",
@@ -67,6 +75,11 @@ public class SecurityConfig {
                                 "/error/**",
                                 "/cards",
                                 "/cards/**",
+                                "/pos",
+                                "/products",
+                                "/products/**",
+                                "/sales",
+                                "/sales/**",
                                 "/h2-console",
                                 "/h2-console/**"
                         ).permitAll()

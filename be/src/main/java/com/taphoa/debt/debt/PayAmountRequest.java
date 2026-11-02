@@ -10,7 +10,7 @@ import jakarta.validation.constraints.NotNull;
 /** Số tiền khách muốn trả — trừ lần lượt từ khoản còn nợ nhỏ nhất. */
 public record PayAmountRequest(
         @NotNull(message = "Số tiền trả không được trống")
-        @DecimalMin(value = "1000", inclusive = true, message = "Số tiền trả tối thiểu là 1.000 đ")
+        @DecimalMin(value = "1000", inclusive = true, message = "Số tiền trả nợ phải trên 1.000 đ")
         @MultipleOfThousand
         BigDecimal amount
 ) {

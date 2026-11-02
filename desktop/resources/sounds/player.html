@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <title>sound</title>
+  </head>
+  <body>
+    <script>
+      const src = new URLSearchParams(location.search).get('src') || ''
+      const a = new Audio(src)
+      const done = () => {
+        try {
+          window.close()
+        } catch (_) {}
+      }
+      a.addEventListener('ended', done)
+      a.addEventListener('error', done)
+      if (!src) done()
+      else a.play().catch(done)
+    </script>
+  </body>
+</html>

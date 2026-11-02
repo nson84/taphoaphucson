@@ -1,0 +1,37 @@
+---
+description: Quy trình bắt buộc — đọc rules BE/FE + feature docs, test + DevTools trước khi báo xong
+alwaysApply: true
+---
+
+# Agent workflow (Phúc Sơn)
+
+Chi tiết đầy đủ: [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md)
+
+## Trước khi code
+
+0. **App PC (Electron)** → đọc [docs/DESKTOP_APP_REQUIREMENTS.md](docs/DESKTOP_APP_REQUIREMENTS.md) (rule `desktop-app-requirements.mdc`) — mỗi chức năng / luồng lớn
+1. **BE** → `.cursor/rules/flow-dev-backend.mdc` + `docs/flow/flow-dev-backend.md`
+2. **FE** → `.cursor/rules/flow-dev-frontend.mdc` + `docs/flow/flow-dev-frontend.md`
+3. **Fullstack / plan** → `.cursor/rules/flow-dev.mdc` + `docs/flow/flow-dev-fullstack.md`
+4. **Feature** → đọc `docs/features/<name>.md` (map trong `feature-docs.mdc`); `docs/PROGRESS.md`, `API_CONTRACT.md`, `PAGES.md` khi cần
+5. **MySQL / migration** → `db-changes-mysql.mdc`
+
+Không code feature mới khi chưa biết phần **Đã có** trong feature doc.
+
+## Trong lúc code
+
+- BE: DTO, LAZY, Flyway khi đổi schema, test khi đụng API
+- FE: `shared/api.js`, shared components, tokens `index.css`
+- Bỏ tính năng: xóa cả BE + FE + docs
+
+## Trước khi báo hoàn thành (bắt buộc)
+
+Áp dụng cả `runnable-before-done.mdc`:
+
+1. **Build:** `fe/` → `npm run build` (+ `npm run lint`); `be/` → `.\mvnw.cmd test` hoặc compile
+2. **Kiểm tra hành vi:** API hoặc màn hình bị ảnh hưởng — không lỗi runtime/console
+3. **UI / luồng phức tạp:** dùng **Chrome DevTools MCP** (skill `chrome-devtools`) — navigate, console, network khi MCP sẵn sàng; không bỏ qua bước kiểm tra
+4. **Docs:** cập nhật `docs/features/<name>.md`; PROGRESS / PAGES / API / DECISION_LOG nếu đổi hành vi hoặc contract
+5. Báo cáo user: file đổi, lệnh đã chạy, kết quả test/build, cách đã verify
+
+Không đánh dấu task xong nếu chỉ mới sửa file mà chưa build/test/verify.

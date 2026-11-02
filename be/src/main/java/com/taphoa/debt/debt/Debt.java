@@ -60,6 +60,10 @@ public class Debt {
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 
+    /** Hóa đơn bán hàng tạo khoản nợ này (nullable — nợ tay không có). */
+    @Column(name = "sale_id")
+    private Long saleId;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -152,6 +156,14 @@ public class Debt {
 
     public void setPaidAt(LocalDateTime paidAt) {
         this.paidAt = paidAt;
+    }
+
+    public Long getSaleId() {
+        return saleId;
+    }
+
+    public void setSaleId(Long saleId) {
+        this.saleId = saleId;
     }
 
     public Instant getCreatedAt() {

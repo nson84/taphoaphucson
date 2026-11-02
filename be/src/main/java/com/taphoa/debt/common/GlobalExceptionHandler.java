@@ -2,6 +2,7 @@ package com.taphoa.debt.common;
 
 import java.time.Instant;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -37,6 +38,17 @@ public class GlobalExceptionHandler {
             message = "Ngày giờ không hợp lệ";
         } else if (raw != null && (raw.contains("BigDecimal") || raw.contains("amount"))) {
             message = "Số tiền không hợp lệ (không được âm hoặc sai định dạng)";
+        }
+        return ResponseEntity.badRequest()
+                .body(new ErrorResponse(Instant.now(), HttpStatus.BAD_REQUEST.value(), "Bad Request", message));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex) {
+        String raw = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        String message = "Dữ liệu bị trùng hoặc không hợp lệ";
+        if (raw != null && raw.toLowerCase().contains("barcode")) {
+            message = "Mã vạch / mã hàng đã tồn tại";
         }
         return ResponseEntity.badRequest()
                 .body(new ErrorResponse(Instant.now(), HttpStatus.BAD_REQUEST.value(), "Bad Request", message));

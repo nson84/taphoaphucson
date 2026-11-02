@@ -23,11 +23,11 @@ public record UpdateDebtRequest(
         @Size(max = 80, message = "Tên người lấy tối đa 80 ký tự")
         String pickerName,
         @NotNull(message = "Số tiền nợ không được trống")
-        @DecimalMin(value = "1000", inclusive = true, message = "Số tiền nợ tối thiểu là 1.000 đ")
+        @DecimalMin(value = "1000", inclusive = true, message = "Khoản nợ không thể dưới 1.000 đ")
         @DecimalMax(value = "10000000", inclusive = true, message = "Số tiền nợ tối đa là 10.000.000 đ")
         @MultipleOfThousand
         BigDecimal amount,
-        @Size(max = 200, message = "Ghi chú sản phẩm tối đa 200 ký tự")
+        @Size(max = 2000, message = "Ghi chú sản phẩm tối đa 2000 ký tự")
         String productNote,
         @NotNull(message = "Ngày giờ không được trống") LocalDateTime occurredAt
 ) {

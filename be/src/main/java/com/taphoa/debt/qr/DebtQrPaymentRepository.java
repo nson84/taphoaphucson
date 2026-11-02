@@ -9,6 +9,8 @@ public interface DebtQrPaymentRepository extends JpaRepository<DebtQrPayment, Lo
 
     List<DebtQrPayment> findByCustomerIdAndStatus(Long customerId, DebtQrStatus status);
 
+    List<DebtQrPayment> findByCustomerId(Long customerId);
+
     Optional<DebtQrPayment> findByCode(String code);
 
     boolean existsByCode(String code);

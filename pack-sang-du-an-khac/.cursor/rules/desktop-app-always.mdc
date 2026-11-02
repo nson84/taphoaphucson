@@ -1,0 +1,20 @@
+---
+description: App PC Electron + MySQL local — không thiết kế như SaaS cloud
+alwaysApply: true
+---
+
+# App desktop (bắt buộc)
+
+Dự án hướng **app Windows 1 máy** (Electron + BE + MySQL local).
+
+## Trước chức năng lớn
+
+1. Đọc checklist desktop trong `docs/` nếu có (hoặc skill `desktop-mysql-electron`).
+2. Thiết kế local-first: nháp `localStorage` OK; dữ liệu chính qua API/MySQL.
+3. Feature in / thoát app / backup / quét mã → test trên bản desktop hoặc IPC giả lập, không chỉ Vite browser.
+
+## Tránh
+
+- Giả định sync đa thiết bị là nguồn sự thật.
+- Dùng H2 / file DB cho môi trường shop/desktop.
+- Chỉ verify trên `npm run dev` khi đụng in, backup folder, splash, quit dialog.

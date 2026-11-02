@@ -34,15 +34,21 @@ public class CustomerController {
             @RequestParam(defaultValue = "amountDesc") String sort,
             @RequestParam(defaultValue = "false") boolean nameOnly,
             @RequestParam(defaultValue = "false") boolean filterPersonal,
-            @RequestParam(defaultValue = "false") boolean filterCompany
+            @RequestParam(defaultValue = "false") boolean filterCompany,
+            /** true = gợi ý form tạo nợ (gồm khách hết nợ / chưa nợ); false = danh sách còn dư nợ */
+            @RequestParam(defaultValue = "false") boolean suggest
     ) {
         return PageResponse.from(
-                customerService.search(q, page, size, sort, nameOnly, filterPersonal, filterCompany));
+                customerService.search(q, page, size, sort, nameOnly, filterPersonal, filterCompany, suggest));
     }
 
     @GetMapping("/{id}")
-    public CustomerDto get(@PathVariable Long id) {
-        return customerService.get(id);
+    public CustomerDto get(
+            @PathVariable Long id,
+            /** true = số dư là tổng đã trả trong thùng rác (kể cả khách vẫn còn nợ) */
+            @RequestParam(defaultValue = "false") boolean trashView
+    ) {
+        return customerService.get(id, trashView);
     }
 
     @GetMapping("/{id}/debts")
@@ -53,9 +59,11 @@ public class CustomerController {
             @RequestParam(required = false) Integer day,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "amountDesc") String sort
+            @RequestParam(defaultValue = "dateDesc") String sort,
+            /** null = tất cả; false = còn nợ (Tổng hợp); true = hết nợ (Thùng rác) */
+            @RequestParam(required = false) Boolean paid
     ) {
-        return PageResponse.from(customerService.debts(id, year, month, day, page, size, sort));
+        return PageResponse.from(customerService.debts(id, year, month, day, page, size, sort, paid));
     }
 
     @PostMapping("/{id}/pay-amount")

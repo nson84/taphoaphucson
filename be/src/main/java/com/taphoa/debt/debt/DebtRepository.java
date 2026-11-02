@@ -42,18 +42,24 @@ public interface DebtRepository extends JpaRepository<Debt, Long> {
                     WHERE d.customer.id = :customerId
                       AND (:from IS NULL OR d.occurredAt >= :from)
                       AND (:to IS NULL OR d.occurredAt < :to)
+                      AND (:paid IS NULL OR d.paid = :paid)
+                      AND (:paidSince IS NULL OR (d.paidAt IS NOT NULL AND d.paidAt >= :paidSince))
                     """,
             countQuery = """
                     SELECT COUNT(d) FROM Debt d
                     WHERE d.customer.id = :customerId
                       AND (:from IS NULL OR d.occurredAt >= :from)
                       AND (:to IS NULL OR d.occurredAt < :to)
+                      AND (:paid IS NULL OR d.paid = :paid)
+                      AND (:paidSince IS NULL OR (d.paidAt IS NOT NULL AND d.paidAt >= :paidSince))
                     """
     )
     Page<Debt> findByCustomerAndRange(
             @Param("customerId") Long customerId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to,
+            @Param("paid") Boolean paid,
+            @Param("paidSince") LocalDateTime paidSince,
             Pageable pageable
     );
 
@@ -75,14 +81,28 @@ public interface DebtRepository extends JpaRepository<Debt, Long> {
             """)
     BigDecimal sumPaidByCustomer(@Param("customerId") Long customerId);
 
+    /** Tổng đã trả còn trong hạn thùng rác (theo lúc trả, không cần khách hết nợ hoàn toàn). */
     @Query("""
             SELECT COALESCE(SUM(d.amount), 0) FROM Debt d
-            JOIN d.customer c
+            WHERE d.customer.id = :customerId
+              AND d.paid = true
+              AND d.paidAt IS NOT NULL
+              AND d.paidAt >= :cutoff
+            """)
+    BigDecimal sumPaidByCustomerSince(
+            @Param("customerId") Long customerId,
+            @Param("cutoff") LocalDateTime cutoff
+    );
+
+    @Query("""
+            SELECT COALESCE(SUM(d.amount), 0) FROM Debt d
             WHERE d.paid = true
-              AND c.trashedAt IS NOT NULL
-              AND c.trashedAt >= :cutoff
+              AND d.paidAt IS NOT NULL
+              AND d.paidAt >= :cutoff
             """)
     BigDecimal sumPaidInTrash(@Param("cutoff") LocalDateTime cutoff);
+
+    List<Debt> findByPaidTrueAndPaidAtBefore(LocalDateTime cutoff);
 
     List<Debt> findAllByCustomerId(Long customerId);
 
@@ -91,4 +111,6 @@ public interface DebtRepository extends JpaRepository<Debt, Long> {
     boolean existsByCustomerIdAndDebtType(Long customerId, DebtType debtType);
 
     boolean existsByCustomerIdAndPaidTrue(Long customerId);
+
+    java.util.Optional<Debt> findBySaleId(Long saleId);
 }

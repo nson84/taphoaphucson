@@ -17,6 +17,10 @@ import org.springframework.transaction.annotation.Transactional;
 import com.taphoa.debt.debt.Debt;
 import com.taphoa.debt.debt.DebtRepository;
 import com.taphoa.debt.debt.DebtType;
+import com.taphoa.debt.qr.DebtQrPayment;
+import com.taphoa.debt.qr.DebtQrPaymentRepository;
+import com.taphoa.debt.sale.Sale;
+import com.taphoa.debt.sale.SaleRepository;
 
 @Component
 public class CustomerMergeService implements ApplicationRunner {
@@ -25,10 +29,19 @@ public class CustomerMergeService implements ApplicationRunner {
 
     private final CustomerRepository customerRepository;
     private final DebtRepository debtRepository;
+    private final DebtQrPaymentRepository debtQrPaymentRepository;
+    private final SaleRepository saleRepository;
 
-    public CustomerMergeService(CustomerRepository customerRepository, DebtRepository debtRepository) {
+    public CustomerMergeService(
+            CustomerRepository customerRepository,
+            DebtRepository debtRepository,
+            DebtQrPaymentRepository debtQrPaymentRepository,
+            SaleRepository saleRepository
+    ) {
         this.customerRepository = customerRepository;
         this.debtRepository = debtRepository;
+        this.debtQrPaymentRepository = debtQrPaymentRepository;
+        this.saleRepository = saleRepository;
     }
 
     @Override
@@ -76,8 +89,8 @@ public class CustomerMergeService implements ApplicationRunner {
         if (note != null && !note.isBlank()) {
             primary.setNote(note);
         }
-        // Không ghi đè parentName bằng giá trị khác — đã khớp identity
-        if (!Objects.equals(normalizeParent(primary.getParentName()), parent)) {
+        // Chuẩn hóa bản ghi cũ bị nhân đôi tiền tố (Xưởng: Xưởng: … → Xưởng: …)
+        if (!Objects.equals(primary.getParentName(), parent)) {
             primary.setParentName(parent);
         }
         primary = customerRepository.save(primary);
@@ -188,11 +201,26 @@ public class CustomerMergeService implements ApplicationRunner {
                 debt.setCustomer(primary);
                 debtRepository.save(debt);
             }
+            // QR / hóa đơn bán cũng trỏ customer_id — phải chuyển trước khi xóa
+            for (DebtQrPayment qr : debtQrPaymentRepository.findByCustomerId(dup.getId())) {
+                qr.setCustomer(primary);
+                debtQrPaymentRepository.save(qr);
+            }
+            for (Sale sale : saleRepository.findByCustomerId(dup.getId())) {
+                sale.setCustomer(primary);
+                saleRepository.save(sale);
+            }
             boolean changed = false;
             if ((primary.getNote() == null || primary.getNote().isBlank())
                     && dup.getNote() != null
                     && !dup.getNote().isBlank()) {
                 primary.setNote(dup.getNote());
+                changed = true;
+            }
+            // Chuẩn hóa parentName bản ghi chính nếu còn tiền tố lặp
+            String cleanParent = normalizeParent(primary.getParentName());
+            if (!Objects.equals(primary.getParentName(), cleanParent)) {
+                primary.setParentName(cleanParent);
                 changed = true;
             }
             if (changed) {
@@ -202,14 +230,89 @@ public class CustomerMergeService implements ApplicationRunner {
         }
     }
 
+    /**
+     * Chuẩn hóa quan hệ/xưởng: bỏ tiền tố lặp ("Xưởng: Xưởng: Kính" → "Xưởng: Kính")
+     * để không tạo khách trùng khi lưu lại form.
+     */
     static String normalizeParent(String parentName) {
         String parent = CustomerNameNormalizer.normalize(parentName);
-        return parent.isEmpty() ? null : parent;
+        if (parent.isEmpty()) {
+            return null;
+        }
+        return collapseRepeatedRefPrefix(parent);
+    }
+
+    /** Các tiền tố quan hệ/xưởng/công ty đã biết (dài hơn xét trước). */
+    private static final String[] REF_PREFIX_HEADS = {
+            "Nhân viên công ty",
+            "Chủ công ty",
+            "Dâu / Rể",
+            "Dâu/Rể",
+            "Ông bà",
+            "Cô chú",
+            "Cậu mợ",
+            "Bố mẹ",
+            "Xưởng",
+            "Ông",
+            "Bà",
+            "Cô",
+            "Chú",
+            "Cậu",
+            "Mợ",
+            "Dì",
+            "Bác",
+            "Anh",
+            "Chị",
+            "Cháu",
+            "Dâu",
+            "Rể",
+    };
+
+    static String collapseRepeatedRefPrefix(String raw) {
+        String s = raw == null ? "" : raw.trim();
+        if (s.isEmpty()) {
+            return s;
+        }
+        String keptHead = null;
+        String name = s;
+        for (int guard = 0; guard < 8; guard++) {
+            boolean matched = false;
+            for (String head : REF_PREFIX_HEADS) {
+                // "Xưởng: …" hoặc chỉ "Xưởng"
+                if (name.equalsIgnoreCase(head)) {
+                    keptHead = head;
+                    name = "";
+                    matched = true;
+                    break;
+                }
+                String withColon = head + ":";
+                if (name.length() > withColon.length()
+                        && name.regionMatches(true, 0, withColon, 0, withColon.length())) {
+                    keptHead = head;
+                    name = name.substring(withColon.length()).trim();
+                    // bỏ khoảng trắng thừa sau dấu :
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                break;
+            }
+        }
+        if (keptHead == null) {
+            return s;
+        }
+        // Vai trò không kèm tên ("Chủ công ty") giữ nguyên, không thêm dấu ':'.
+        if (name.isEmpty()) {
+            return keptHead;
+        }
+        return keptHead + ": " + name;
     }
 
     static String parentKey(String parentName) {
-        return CustomerNameNormalizer.normalize(parentName == null ? "" : parentName)
-                .toLowerCase(Locale.ROOT);
+        String collapsed = collapseRepeatedRefPrefix(
+                CustomerNameNormalizer.normalize(parentName == null ? "" : parentName));
+        return collapsed.toLowerCase(Locale.ROOT);
     }
 
     static String identityKey(String name, String parentName) {

@@ -21,7 +21,12 @@ public class SpaForwardController {
             "/error",
             "/error/**",
             "/cards",
-            "/cards/**"
+            "/cards/**",
+            "/pos",
+            "/products",
+            "/products/**",
+            "/sales",
+            "/sales/**"
     })
     public String forward() {
         return "forward:/index.html";

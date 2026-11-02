@@ -1,0 +1,24 @@
+---
+description: App PC (Electron) — bắt buộc đọc docs/DESKTOP_APP_REQUIREMENTS.md trước mỗi chức năng
+alwaysApply: true
+---
+
+# Yêu cầu app desktop (bắt buộc)
+
+Dự án **build app PC Windows** (Electron + BE + MySQL local), **không** thiết kế như web cloud đa máy.
+
+## Trước mỗi chức năng / thay đổi luồng lớn
+
+1. **Đọc** [docs/DESKTOP_APP_REQUIREMENTS.md](../../docs/DESKTOP_APP_REQUIREMENTS.md) — kiến trúc 1 máy quầy, lưu nháp, in, MySQL.
+2. **Đọc** `docs/features/<name>.md` (rule `feature-docs.mdc`).
+3. Thiết kế/code **phù hợp desktop**: localStorage nháp POS OK; dữ liệu chính qua API/MySQL; POS/in/backup → xem `desktop/`, `print.js`.
+
+## Tránh
+
+- Giả định sync đa thiết bị / session web là nguồn sự thật cho nghiệp vụ.
+- Chỉ test `npm run dev` trình duyệt khi feature liên quan **in im, thoát app, backup, wedge quét mã**.
+- Dùng `sessionStorage` làm lưu nháp nghiệp vụ lâu dài (ưu tiên `localStorage` + API).
+
+## Sau khi làm
+
+- Cập nhật feature doc; quyết định desktop quan trọng → `docs/DECISION_LOG.md`.

@@ -17,7 +17,7 @@ import com.taphoa.debt.summary.SummaryDto;
 @RequestMapping("/api/trash")
 public class TrashController {
 
-    public static final int RETENTION_DAYS = 60;
+    public static final int RETENTION_DAYS = DebtService.TRASH_RETENTION_DAYS;
 
     private final DebtRepository debtRepository;
     private final CustomerService customerService;

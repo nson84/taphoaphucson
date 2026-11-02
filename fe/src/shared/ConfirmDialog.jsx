@@ -4,12 +4,15 @@ export default function ConfirmDialog({
   open,
   title,
   message,
+  children,
   confirmLabel = 'Xác nhận',
   cancelLabel = 'Đóng',
   requirePin = false,
+  hideConfirm = false,
   danger = false,
   busy = false,
   elevated = false,
+  cardClassName = '',
   onConfirm,
   onClose,
 }) {
@@ -45,15 +48,16 @@ export default function ConfirmDialog({
       onClick={onClose}
     >
       <div
-        className="modal-card"
+        className={`modal-card${cardClassName ? ` ${cardClassName}` : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-title"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="confirm-title">{title}</h2>
-        {message && <p className="muted">{message}</p>}
-        {requirePin && (
+        {children}
+        {!children && message && <p className="muted">{message}</p>}
+        {requirePin && !hideConfirm && (
           <label>
             Mã PIN
             <input
@@ -74,14 +78,16 @@ export default function ConfirmDialog({
           <button type="button" className="btn-cancel" onClick={onClose} disabled={busy}>
             {cancelLabel}
           </button>
-          <button
-            type="button"
-            className={danger ? 'danger' : undefined}
-            onClick={handleConfirm}
-            disabled={busy}
-          >
-            {busy ? 'Đang xử lý...' : confirmLabel}
-          </button>
+          {!hideConfirm && (
+            <button
+              type="button"
+              className={danger ? 'danger' : undefined}
+              onClick={handleConfirm}
+              disabled={busy}
+            >
+              {busy ? 'Đang xử lý...' : confirmLabel}
+            </button>
+          )}
         </div>
       </div>
     </div>

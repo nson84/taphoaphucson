@@ -1,0 +1,24 @@
+---
+description: Flow session Frontend — React fe/
+globs: fe/**/*
+alwaysApply: false
+---
+
+# Flow Frontend (`fe/`)
+
+Chi tiết: [docs/flow/flow-dev-frontend.md](docs/flow/flow-dev-frontend.md)
+
+## Trong session FE
+
+- 1 page / 1 flow = 1 session; follow `fe/src/features/` + `fe/src/shared/`
+- API qua `fe/src/shared/api.js` — không tự tạo fetch wrapper mới
+- Dùng shared (Layout, dialog, format, toast…) — không nhân bản Button/Table mỗi page
+- Mọi màn: loading / error / empty khi có data bất đồng bộ
+- Giữ design tokens trong `fe/src/index.css` (`--accent`, spacing…) — không chọn màu ngẫu nhiên
+- Xong: browser kiểm tra; commit `feat(fe): ...`
+
+## Không
+
+- Ảnh nền / redesign toàn app khi user chưa duyệt
+- Tự tạo component trùng shared
+- Gọi API sai contract (đối chiếu `docs/API_CONTRACT.md` / `docs/PAGES.md` nếu có)

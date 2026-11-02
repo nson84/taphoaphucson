@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, getToken } from '../../shared/api'
-import { rememberBackupPassword } from '../../shared/ExitBackupDialog'
 
 export default function SettingsPage() {
   const desktop = typeof window !== 'undefined' ? window.taphoaDesktop : null
@@ -12,18 +11,58 @@ export default function SettingsPage() {
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const [backupPassword, setBackupPassword] = useState('')
-  const [backupUnlocked, setBackupUnlocked] = useState(false)
-  const [backupUnlocking, setBackupUnlocking] = useState(false)
   const [backupDownloading, setBackupDownloading] = useState(false)
   const [backupError, setBackupError] = useState('')
   const [backupSuccess, setBackupSuccess] = useState('')
   const [backupFolder, setBackupFolder] = useState('')
 
+  const [invEnabled, setInvEnabled] = useState(true)
+  const [invThreshold, setInvThreshold] = useState('10')
+  const [invBusy, setInvBusy] = useState(false)
+  const [invError, setInvError] = useState('')
+  const [invSuccess, setInvSuccess] = useState('')
+  const [invCount, setInvCount] = useState(0)
+
   useEffect(() => {
     if (!desktop?.getBackupFolder) return
     desktop.getBackupFolder().then((dir) => setBackupFolder(dir || '')).catch(() => {})
   }, [desktop])
+
+  useEffect(() => {
+    api('/api/settings/inventory')
+      .then((d) => {
+        setInvEnabled(Boolean(d.enabled))
+        setInvThreshold(String(d.threshold ?? 10))
+        setInvCount(Number(d.lowStockCount) || 0)
+      })
+      .catch(() => {})
+  }, [])
+
+  async function onSaveInventory(e) {
+    e.preventDefault()
+    setInvError('')
+    setInvSuccess('')
+    const threshold = Number(invThreshold)
+    if (!Number.isFinite(threshold) || threshold < 1 || threshold > 9999) {
+      setInvError('Ngưỡng tồn kho phải từ 1 đến 9999')
+      return
+    }
+    setInvBusy(true)
+    try {
+      const d = await api('/api/settings/inventory', {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: invEnabled, threshold }),
+      })
+      setInvEnabled(Boolean(d.enabled))
+      setInvThreshold(String(d.threshold))
+      setInvCount(Number(d.lowStockCount) || 0)
+      setInvSuccess('Đã lưu cảnh báo tồn kho')
+    } catch (err) {
+      setInvError(err.message)
+    } finally {
+      setInvBusy(false)
+    }
+  }
 
   async function onSubmitPin(e) {
     e.preventDefault()
@@ -54,27 +93,6 @@ export default function SettingsPage() {
     }
   }
 
-  async function onUnlockBackup(e) {
-    e.preventDefault()
-    setBackupError('')
-    setBackupSuccess('')
-    setBackupUnlocking(true)
-    try {
-      await api('/api/settings/backup/unlock', {
-        method: 'POST',
-        body: JSON.stringify({ password: backupPassword }),
-      })
-      setBackupUnlocked(true)
-      rememberBackupPassword(backupPassword)
-      setBackupSuccess('Đã mở mục Backup')
-    } catch (err) {
-      setBackupUnlocked(false)
-      setBackupError(err.message)
-    } finally {
-      setBackupUnlocking(false)
-    }
-  }
-
   async function onPickBackupFolder() {
     setBackupError('')
     setBackupSuccess('')
@@ -97,13 +115,23 @@ export default function SettingsPage() {
     setBackupSuccess('')
     setBackupDownloading(true)
     try {
+      let dir = backupFolder
+      if (desktop?.getBackupFolder) {
+        dir = dir || (await desktop.getBackupFolder()) || ''
+        if (!dir && desktop.pickBackupFolder) {
+          dir = (await desktop.pickBackupFolder()) || ''
+        }
+        if (!dir) {
+          throw new Error('Chưa có thư mục sao lưu — chọn thư mục trước')
+        }
+        if (dir !== backupFolder) setBackupFolder(dir)
+      }
+
       const res = await fetch('/api/settings/backup/download', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           Authorization: `Bearer ${getToken() || ''}`,
         },
-        body: JSON.stringify({ password: backupPassword }),
       })
       if (res.status === 401) {
         window.location.href = '/login'
@@ -119,10 +147,27 @@ export default function SettingsPage() {
         }
         throw new Error(message)
       }
-      const blob = await res.blob()
       const disposition = res.headers.get('Content-Disposition') || ''
       const match = /filename="?([^"]+)"?/i.exec(disposition)
       const filename = match?.[1] || `taphoa-backup-${Date.now()}.json`
+
+      // App desktop: ghi thẳng vào thư mục backup (mặc định D:\backup_data_banhang_taphoaphucson)
+      if (desktop?.writeBackupFile && dir) {
+        const buffer = await res.arrayBuffer()
+        const written = await desktop.writeBackupFile({
+          directory: dir,
+          fileName: filename,
+          data: Array.from(new Uint8Array(buffer)),
+        })
+        if (!written?.ok) {
+          throw new Error(written?.error || 'Không ghi được file vào thư mục đã chọn')
+        }
+        setBackupSuccess(`Đã lưu: ${written.path || `${dir}\\${filename}`}`)
+        return
+      }
+
+      // Trình duyệt dev: tải về thư mục Downloads của trình duyệt
+      const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -143,7 +188,7 @@ export default function SettingsPage() {
     <section className="panel form-page">
       <div className="form-page-head">
         <Link className="form-back" to="/">
-          ← Quay lại tổng hợp
+          ← Quay lại danh sách nợ &amp; ghi nợ
         </Link>
         <h1>Cài đặt</h1>
       </div>
@@ -197,81 +242,81 @@ export default function SettingsPage() {
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}
 
+      <form className="form-card" onSubmit={onSaveInventory} style={{ marginTop: '1.5rem', marginBottom: '1.5rem' }}>
+        <div className="form-section">
+          <h2 className="form-section-title">Cảnh báo tồn kho</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Hiện icon trên mục Hàng hóa khi còn hàng nhưng dưới ngưỡng đã chọn. Tồn = 0 hoặc âm vẫn bán bình
+            thường; tắt cảnh báo nếu cửa hàng không theo dõi tồn kho.
+          </p>
+          <div className="form-grid">
+            <label className="inventory-toggle full">
+              <input
+                type="checkbox"
+                checked={invEnabled}
+                onChange={(e) => setInvEnabled(e.target.checked)}
+              />
+              <span>Bật thông báo tồn thấp</span>
+            </label>
+            <label className="field">
+              <span className="field-label">Cảnh báo khi còn dưới (đơn vị cơ bản)</span>
+              <input
+                type="number"
+                min={1}
+                max={9999}
+                required
+                value={invThreshold}
+                onChange={(e) => setInvThreshold(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              />
+            </label>
+            <p className="muted field full" style={{ margin: 0 }}>
+              Hiện đang có <strong>{invCount}</strong> hàng trong ngưỡng cảnh báo.
+            </p>
+          </div>
+          <div className="form-actions">
+            <button type="submit" className="btn-lg" disabled={invBusy}>
+              {invBusy ? 'Đang lưu…' : 'Lưu cảnh báo tồn kho'}
+            </button>
+          </div>
+          {invError && <p className="error">{invError}</p>}
+          {invSuccess && <p className="success">{invSuccess}</p>}
+        </div>
+      </form>
+
       <div className="form-card" style={{ marginTop: '1.5rem' }}>
         <div className="form-section">
           <h2 className="form-section-title">Backup</h2>
           <p className="muted" style={{ marginTop: 0 }}>
-            Sao lưu toàn bộ dữ liệu ra file JSON. Mục này được khóa bằng mật khẩu riêng.
+            Sao lưu toàn bộ dữ liệu ra file JSON vào thư mục bên dưới (mặc định{' '}
+            <code>D:\backup_data_banhang_taphoaphucson</code>). Dùng khi tắt app hoặc bấm tải thủ
+            công.
           </p>
 
-          {!backupUnlocked ? (
-            <form onSubmit={onUnlockBackup}>
-              <div className="form-grid">
-                <label className="field full">
-                  <span className="field-label">Mật khẩu Backup</span>
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    required
-                    value={backupPassword}
-                    onChange={(e) => setBackupPassword(e.target.value)}
-                    placeholder="Nhập mật khẩu để mở"
-                    autoComplete="off"
-                  />
-                </label>
-              </div>
-              <div className="form-actions">
-                <button type="submit" className="btn-lg" disabled={backupUnlocking}>
-                  {backupUnlocking ? 'Đang mở…' : 'Mở mục Backup'}
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div>
-              <p className="muted">
-                Đã mở khóa. Chọn thư mục cố định để khi tắt app (nút X) có thể sao lưu vào đó, hoặc tải
-                file thủ công.
-              </p>
-              <div className="form-grid" style={{ marginBottom: '0.75rem' }}>
-                <label className="field full">
-                  <span className="field-label">Thư mục sao lưu khi tắt app</span>
-                  <input
-                    readOnly
-                    value={backupFolder || 'Chưa chọn'}
-                    placeholder="Chưa chọn thư mục"
-                  />
-                </label>
-              </div>
-              <div className="form-actions">
-                {desktop?.pickBackupFolder && (
-                  <button type="button" className="btn-lg" onClick={onPickBackupFolder}>
-                    Chọn thư mục…
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn-lg"
-                  disabled={backupDownloading}
-                  onClick={onDownloadBackup}
-                >
-                  {backupDownloading ? 'Đang tạo file…' : 'Tải bản sao lưu'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-cancel"
-                  onClick={() => {
-                    setBackupUnlocked(false)
-                    setBackupPassword('')
-                    rememberBackupPassword('')
-                    setBackupSuccess('')
-                    setBackupError('')
-                  }}
-                >
-                  Khóa lại
-                </button>
-              </div>
-            </div>
-          )}
+          <div className="form-grid" style={{ marginBottom: '0.75rem' }}>
+            <label className="field full">
+              <span className="field-label">Thư mục sao lưu</span>
+              <input
+                readOnly
+                value={backupFolder || 'Chưa chọn'}
+                placeholder="Chưa chọn thư mục"
+              />
+            </label>
+          </div>
+          <div className="form-actions">
+            {desktop?.pickBackupFolder && (
+              <button type="button" className="btn-lg" onClick={onPickBackupFolder}>
+                Chọn thư mục…
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn-lg"
+              disabled={backupDownloading}
+              onClick={onDownloadBackup}
+            >
+              {backupDownloading ? 'Đang tạo file…' : 'Tải bản sao lưu'}
+            </button>
+          </div>
 
           {backupError && <p className="error">{backupError}</p>}
           {backupSuccess && <p className="success">{backupSuccess}</p>}

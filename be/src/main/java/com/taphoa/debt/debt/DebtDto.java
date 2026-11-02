@@ -16,6 +16,7 @@ public record DebtDto(
         LocalDateTime occurredAt,
         boolean paid,
         LocalDateTime paidAt,
+        Long saleId,
         Instant createdAt,
         Instant updatedAt
 ) {

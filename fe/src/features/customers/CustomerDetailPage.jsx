@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Plus, Printer, Search, Wallet, X } from 'lucide-react'
 import { api } from '../../shared/api'
 import {
   AMOUNT_SORT_DESC,
-  amountSortLabel,
-  toggleAmountSort,
+  DATE_SORT_DESC,
+  dateSortLabel,
+  toggleDateSort,
 } from '../../shared/amountSort'
 import { formatCustomerDisplayName } from '../../shared/customerName'
 import { formatMoney, formatMoneyInput, parseMoneyInput } from '../../shared/format'
@@ -43,7 +45,7 @@ export default function CustomerDetailPage() {
   const [customer, setCustomer] = useState(null)
   const [payAmountDraft, setPayAmountDraft] = useState('')
   const [page, setPage] = useState(0)
-  const [amountSort, setAmountSort] = useState(AMOUNT_SORT_DESC)
+  const [dateSort, setDateSort] = useState(DATE_SORT_DESC)
   const [debts, setDebts] = useState({ content: [], totalPages: 0 })
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
@@ -60,7 +62,8 @@ export default function CustomerDetailPage() {
   const trashSearchRef = useRef(null)
   const trashSuggestSeq = useRef(0)
 
-  const inTrash = Boolean(customer?.trashed) || searchParams.get('from') === 'trash'
+  /** Chỉ vào bố cục thùng rác khi mở từ /trash (?from=trash). Từ Tổng hợp luôn xem như chi tiết công nợ. */
+  const inTrash = searchParams.get('from') === 'trash'
 
   const unpaidIds = useMemo(
     () => debts.content.filter((d) => !d.paid).map((d) => d.id),
@@ -69,16 +72,31 @@ export default function CustomerDetailPage() {
   const allUnpaidSelected = unpaidIds.length > 0 && unpaidIds.every((uid) => selected.has(uid))
   const selectedCount = [...selected].filter((uid) => unpaidIds.includes(uid)).length
 
+  /** Tổng còn nợ: khách hết nợ (kể cả đang trash) hiện 0 đ khi xem từ Tổng hợp. */
+  const openBalance = useMemo(() => {
+    if (!customer) return 0
+    if (inTrash) return Number(customer.balance) || 0
+    if (customer.trashed) return 0
+    return Number(customer.balance) || 0
+  }, [customer, inTrash])
+
+  const noOpenDebt = !inTrash && openBalance <= 0
+  const customerDisplayName = customer
+    ? formatCustomerDisplayName(customer.name, customer.parentName, customer.company)
+    : ''
+
   async function loadCustomer() {
-    const c = await api(`/api/customers/${id}`)
+    const c = await api(`/api/customers/${id}${inTrash ? '?trashView=true' : ''}`)
     setCustomer(c)
   }
 
-  async function loadDebts(pageIndex = page, sort = amountSort) {
+  async function loadDebts(pageIndex = page, sort = dateSort) {
     const params = new URLSearchParams({
       page: String(pageIndex),
       size: '20',
       sort,
+      // Tổng hợp: chỉ còn nợ. Thùng rác: khoản đã trả (kể cả khách vẫn còn nợ khác).
+      paid: inTrash ? 'true' : 'false',
     })
     const res = await api(`/api/customers/${id}/debts?${params}`)
     setDebts(res)
@@ -88,11 +106,11 @@ export default function CustomerDetailPage() {
 
   useEffect(() => {
     loadCustomer().catch((e) => setError(e.message))
-  }, [id])
+  }, [id, inTrash])
 
   useEffect(() => {
-    loadDebts(page, amountSort).catch((e) => setError(e.message))
-  }, [id, page, amountSort])
+    loadDebts(page, dateSort).catch((e) => setError(e.message))
+  }, [id, page, dateSort, inTrash])
 
   useEffect(() => {
     if (!inTrash) {
@@ -177,14 +195,22 @@ export default function CustomerDetailPage() {
         })
       }
       setCheckout(null)
-      await Promise.all([loadCustomer(), loadDebts()])
+      const c = await api(`/api/customers/${id}`)
+      setCustomer(c)
+      // Trả hết mọi khoản → khách vào thùng rác (xem lịch sử đã trả)
+      if (c.trashed) {
+        navigate(`/customers/${id}?from=trash`, { replace: true })
+        return
+      }
+      await loadDebts()
     } finally {
       setBatchBusy(false)
     }
   }
 
   async function openAmountCheckout() {
-    const balance = Number(customer?.balance) || 0
+    if (noOpenDebt) return
+    const balance = openBalance
     const money = validatePayAmount(payAmountDraft, { maxBalance: balance })
     if (!money.ok) {
       setError(
@@ -231,7 +257,7 @@ export default function CustomerDetailPage() {
     }
   }
 
-  async function fetchAllDebts() {
+  async function fetchAllDebts(paidFilter = inTrash ? true : false) {
     const size = 200
     const items = []
     let pageIndex = 0
@@ -240,6 +266,8 @@ export default function CustomerDetailPage() {
       const params = new URLSearchParams({
         page: String(pageIndex),
         size: String(size),
+        sort: DATE_SORT_DESC,
+        paid: String(paidFilter),
       })
       const res = await api(`/api/customers/${id}/debts?${params}`)
       items.push(...(res.content || []))
@@ -317,8 +345,8 @@ export default function CustomerDetailPage() {
       }
       // Trình duyệt: đóng form sau khi hộp thoại in đóng (afterprint)
     } catch (e) {
+      closePrintPreview()
       setError(e.message || 'In thất bại')
-      document.body.classList.remove('print-debts')
     }
   }
 
@@ -362,38 +390,56 @@ export default function CustomerDetailPage() {
       <div className="panel-head">
         <div>
           <Link className="form-back" to={inTrash ? '/trash' : '/'}>
-            {inTrash ? '← Quay lại thùng rác' : '← Quay lại tổng hợp'}
+            {inTrash ? '← Quay lại thùng rác' : '← Quay lại danh sách nợ & ghi nợ'}
           </Link>
-          <h1>{formatCustomerDisplayName(customer.name, customer.parentName, customer.company)}</h1>
+          <h1>{customerDisplayName}</h1>
           <p className="customer-balance-line">
             {inTrash ? 'Tổng đã trả: ' : 'Tổng còn nợ: '}
-            <strong className={inTrash || Number(customer.balance) <= 0 ? 'balance-paid' : 'balance-unpaid'}>
-              {formatMoney(customer.balance)}
+            <strong className={inTrash || openBalance <= 0 ? 'balance-paid' : 'balance-unpaid'}>
+              {formatMoney(inTrash ? customer.balance : openBalance)}
             </strong>
           </p>
         </div>
         <div className="panel-actions">
           <button
             type="button"
-            className="ghost"
-            disabled={previewLoading || (debts.totalElements ?? debts.content.length) === 0}
+            className="btn btn-tool"
+            disabled={
+              noOpenDebt ||
+              previewLoading ||
+              (debts.totalElements ?? debts.content.length) === 0
+            }
             onClick={openPrintPreview}
           >
+            <Printer size={16} strokeWidth={2.25} aria-hidden />
             {previewLoading ? 'Đang tải…' : 'In danh sách'}
           </button>
           {!inTrash && (
             <>
               <button
                 type="button"
-                disabled={selectedCount === 0 || batchBusy}
+                className="btn btn-pay"
+                disabled={noOpenDebt || selectedCount === 0 || batchBusy}
                 onClick={() =>
                   openCheckout(debts.content.filter((d) => !d.paid && selected.has(d.id)))
                 }
               >
+                <Wallet size={16} strokeWidth={2.25} aria-hidden />
                 Trả nợ đã chọn ({selectedCount})
               </button>
-              <Link className="btn" to="/debts/new">
-                + Thêm nợ
+              <Link
+                className="btn btn-create"
+                to="/debts/new"
+                state={{
+                  prefillCustomer: {
+                    name: customer.name,
+                    parentName: customer.parentName || '',
+                    company: Boolean(customer.company),
+                  },
+                }}
+              >
+                <Plus size={18} strokeWidth={2.25} aria-hidden />
+                Thêm nợ
               </Link>
             </>
           )}
@@ -443,7 +489,10 @@ export default function CustomerDetailPage() {
                 </ul>
               )}
             </div>
-            <button type="submit">Tìm kiếm</button>
+            <button type="submit" className="btn btn-search">
+              <Search size={16} strokeWidth={2.25} aria-hidden />
+              Tìm kiếm
+            </button>
             <button
               type="button"
               className="btn-cancel"
@@ -454,6 +503,7 @@ export default function CustomerDetailPage() {
                 setError('')
               }}
             >
+              <X size={16} strokeWidth={2.25} aria-hidden />
               Xóa
             </button>
             <button
@@ -461,49 +511,63 @@ export default function CustomerDetailPage() {
               className="ghost amount-sort-btn"
               onClick={() => {
                 setPage(0)
-                setAmountSort((s) => toggleAmountSort(s))
+                setDateSort((s) => toggleDateSort(s))
               }}
-              title="Đảo chiều sắp xếp theo số tiền"
+              title="Đảo chiều sắp xếp theo ngày"
             >
-              {amountSortLabel(amountSort)}
+              {dateSortLabel(dateSort)}
             </button>
           </div>
         </form>
       ) : (
         <div className="filters pay-amount-bar">
-          <label className="filter-amount-field">
+          <label className={`filter-amount-field${noOpenDebt ? ' is-disabled' : ''}`}>
             Số tiền khách muốn trả
             <input
               type="text"
               inputMode="numeric"
               className="datepicker-input"
               value={formatMoneyInput(payAmountDraft)}
-            onChange={(e) => setPayAmountDraft(parseMoneyInput(e.target.value).slice(0, 12))}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                openAmountCheckout()
-              }
-            }}
-            placeholder="Vd: 17.000"
-            aria-label="Số tiền khách muốn trả"
-          />
-        </label>
-        <button type="button" className="btn-pay" disabled={batchBusy} onClick={openAmountCheckout}>
-          {batchBusy ? 'Đang xử lý…' : 'Trả theo số tiền'}
-        </button>
+              onChange={(e) => setPayAmountDraft(parseMoneyInput(e.target.value).slice(0, 12))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  openAmountCheckout()
+                }
+              }}
+              placeholder="Vd: 17.000"
+              aria-label="Số tiền khách muốn trả"
+              disabled={noOpenDebt}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn-pay"
+            disabled={noOpenDebt || batchBusy}
+            onClick={openAmountCheckout}
+          >
+            {batchBusy ? 'Đang xử lý…' : 'Trả theo số tiền'}
+          </button>
           <button
             type="button"
             className="ghost amount-sort-btn"
+            disabled={noOpenDebt}
             onClick={() => {
+              if (noOpenDebt) return
               setPage(0)
-              setAmountSort((s) => toggleAmountSort(s))
+              setDateSort((s) => toggleDateSort(s))
             }}
-            title="Đảo chiều sắp xếp theo số tiền"
+            title="Đảo chiều sắp xếp theo ngày"
           >
-            {amountSortLabel(amountSort)}
+            {dateSortLabel(dateSort)}
           </button>
         </div>
+      )}
+
+      {noOpenDebt && (
+        <p className="customer-no-debt-msg" role="status">
+          Hiện tại khách hàng tên <strong>{customerDisplayName}</strong> chưa có khoản nợ nào
+        </p>
       )}
 
       {error && <p className="error">{error}</p>}
@@ -608,9 +672,13 @@ export default function CustomerDetailPage() {
                 </td>
               </tr>
             ))}
-            {debts.content.length === 0 && (
+            {(noOpenDebt || debts.content.length === 0) && (
               <tr>
-                <td colSpan={inTrash ? 7 : 8}>Không có khoản nợ trong khoảng đã chọn</td>
+                <td colSpan={inTrash ? 7 : 8}>
+                  {noOpenDebt
+                    ? `Hiện tại khách hàng tên ${customerDisplayName} chưa có khoản nợ nào`
+                    : 'Không có khoản nợ trong khoảng đã chọn'}
+                </td>
               </tr>
             )}
           </tbody>
@@ -784,10 +852,14 @@ function DebtPrintPreview({
       if (!cancelled) await onPrint()
     }
 
-    run()
+    run().catch(() => {
+      /* lỗi đã xử lý trong onPrint */
+    })
     return () => {
       cancelled = true
     }
+    // Chỉ chạy một lần khi mở chế độ in thẳng — không phụ thuộc identity của onPrint
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPrint])
 
   return (

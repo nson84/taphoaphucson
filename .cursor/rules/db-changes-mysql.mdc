@@ -1,0 +1,35 @@
+---
+description: Thay đổi DB chỉ qua Flyway migration chạy trên MySQL — không chạy SQL/script sửa DB trong terminal
+alwaysApply: true
+---
+
+# Thay đổi DB phải chạy qua MySQL (Flyway)
+
+DB chính là MySQL `tap_hoa`. Mọi thay đổi schema/dữ liệu đi qua migration Flyway
+`be/src/main/resources/db/migration/V{n}__mo_ta.sql`, áp dụng bằng cách khởi động BE với MySQL:
+
+```powershell
+cd be
+.\mvnw.cmd spring-boot:run
+```
+
+## Không được
+
+- Tạo file `.sql` hoặc script (Java/Python/PowerShell, `mysql -e`, JDBC tạm…) rồi chạy trong terminal để sửa DB
+- Sửa DB trực tiếp ngoài Flyway rồi “vá” `flyway_schema_history`
+- Dùng profile `local` (H2) để kiểm tra migration — H2 tắt Flyway, không chứng minh được gì cho MySQL
+- Sửa file migration đã chạy thành công trên MySQL — luôn tạo `V{n+1}` mới
+
+## Phải
+
+- Viết SQL đúng cú pháp **MySQL 8** (không dùng `ADD COLUMN IF NOT EXISTS`, `ALTER COLUMN … SET NOT NULL` của H2/Postgres)
+- Kiểm tra migration bằng cách khởi động BE trên MySQL và đọc log Flyway (`Successfully applied …`)
+- Nếu migration lỗi giữa chừng (MySQL không rollback DDL): dừng lại, báo user trạng thái và đề xuất cách sửa; chỉ sửa tay DB khi user đồng ý rõ ràng
+
+```sql
+-- ❌ H2/Postgres, lỗi trên MySQL
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unit_name VARCHAR(40) NULL;
+
+-- ✅ MySQL 8
+ALTER TABLE sale_items ADD COLUMN unit_name VARCHAR(40) NULL;
+```
